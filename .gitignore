@@ -4,6 +4,7 @@
 *.pdf
 *.png
 /data/raw_large_files/
+review_scripts/
 .Rproj.user
 .httr-oauth
 .DS_Store
