@@ -27,9 +27,7 @@ library(reshape2)
 library(gt)
 library(chromote)
 
-# 2. Source Functions & Projections --------------------------------------------
-source('./scripts/my_functions.R')
-
+# 2. Save important plotting variables
 # WGS84 (Geographic) and UTM Zone 8 (Projected)
 proj_wgs <- sf::st_crs(4326)
 proj_utm <- "+proj=utm +zone=8 +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0"

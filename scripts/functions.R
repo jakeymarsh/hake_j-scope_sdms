@@ -1,439 +1,68 @@
-## Functions for analysis
+#' #############################################################################
+#' Project: Pacific Hake Distribution and Biomass Forecasting
+#' Script: Core Functions for Data Processing, Modeling, and Visualization
+#' Author: Jake Marshall
+#' Date: January 2026
+#' Description: This script contains modular functions for spatial data 
+#'              transformation, GAM training (biomass and occurrence), 
+#'              Leave-Future-Out (LFO) validation, and Monte Carlo simulations.
+#' #############################################################################
 
 
-## raster_grid_var -----------------------------------------
-raster_grid_var <- function(data, grid, var, var_new, xvar, yvar, fun, by = NULL, ...) {
-    ## Grid data using specified grid.
-    ##
-    ## This functions takes a predefined raster grid and a data frame of data
-    ## and calculates per-grid-cell statistics. The function returns a
-    ## data frame of the gridded data set.
-    ##
-    ## data = a data.frame
-    ## grid = a RasterLayer object (e.g., output from grid_create)
-    ## var = column name in 'data' of variable to grid
-    ## var_new = new variable name
-    ## xvar = column name of 'data' giving x-coordinate
-    ## yvar = column name of 'data' giving y-coordinate
-    ## fun = function to summarize data within a cell, see ?raster
-    ## by = character vector of variables in 'data' to split the data by.
-    ##      Separate grids are created for each subset of data.
-    ## ... = passed to 'rasterize'
 
-    if(is.null(by)) {
-        out <- .raster_grid_var(data = data,
-                                grid = grid,
-                                var = var,
-                                var_new = var_new,
-                                xvar = xvar,
-                                yvar = yvar,
-                                fun = fun, ...)
-    } else {
-        out <- plyr::ddply(data, by, function(x) {
-            out <- .raster_grid_var(data = x,
-                                    grid = grid,
-                                    var = var,
-                                    var_new = var_new,
-                                    xvar = xvar,
-                                    yvar = yvar,
-                                    fun = fun, ...)
-        })
-    }
+# --------------------------------------------------------------------------
+# Data and Pre-processing 
+# --------------------------------------------------------------------------
 
-    return(out)
-}
 
-.raster_grid_var <- function(data, grid, var, var_new, xvar, yvar, fun, ...) {
-
-    mat <- matrix(c(data[[xvar]], data[[yvar]]), byrow = FALSE, ncol = 2)
-    ras <- raster::rasterize(x = mat, y = grid, field = data[[var]],
-                     fun = fun, ...)
-
-    ## Create a unique cell identifier
-    grid_df <- as.data.frame(grid, xy = TRUE)
-    grid_df[["cell_id"]] <- 1:nrow(grid_df)
-    cellid <- raster::rasterize(x = grid_df[ , c("x", "y")],
-                        y = grid, field = grid_df[["cell_id"]],
-                        fun = function(x, ...) unique(x))
-
-    ## Create raster stack
-    lst <- list(cellid, ras)
-    names(lst) <- c("cell_id", var_new)
-    grd_stack <- raster::stack(lst)
-
-    ## Convert to data frame
-    grd_df <- as.data.frame(grd_stack, xy = TRUE)
-    names(grd_df)[names(grd_df) == "x"] <- xvar
-    names(grd_df)[names(grd_df) == "y"] <- yvar
-
-    return(grd_df)
+create_vars <- function(hake_t){
+  
+  
+  hake_t$year_fac <- as.factor(hake_t$year)
+  hake_t$log_wgt_total <- ifelse(hake_t$wgt_total == 0, NA, log(hake_t$wgt_total))
+  hake_t$log_age2 <- ifelse(hake_t$age2 == 0, NA, log(hake_t$age2))
+  hake_t$age3_4 <- hake_t$age3 + hake_t$age4
+  hake_t$log_age3_4 <- ifelse(hake_t$age3_4 == 0, NA, log(hake_t$age3_4))
+  hake_t$age5_20 <- rowSums(hake_t[ , paste0('age', 5:20)])
+  hake_t$log_age5_20 <- ifelse(hake_t$age5_20 == 0, NA, log(hake_t$age5_20))
+  
+  hake_t$present_total    <- ifelse(hake_t$wgt_total > 0, 1, 0)
+  hake_t$present_age2    <- ifelse(hake_t$age2 > 0, 1, 0)
+  hake_t$present_age3_4  <- ifelse(hake_t$age3_4 > 0, 1, 0)
+  hake_t$present_age5_20 <- ifelse(hake_t$age5_20 > 0, 1, 0)
+  
+  return(hake_t)
 }
 
 
-library(raster)
-## raster_grid_create --------------------------------------
-raster_grid_create <- function(data, res, crs,
-                               xvar = "easting_m",
-                               yvar = "northing_m",
-                               xmin = NULL,
-                               xmax = NULL,
-                               ymin = NULL,
-                               ymax = NULL) {
-    ## Create a raster grid. The default is to use the spatial extent of the
-    ## input data for the grid extent, but setting xmin,xmax,ymin,ymax overrides
-    ## this.
-    ##
-    ## Returns a 'RasterLayer' object
-    ##
-    ## data = a data.frame
-    ## res = grid resolution in same units as input data x,y
-    ## crs = character or object of class CRS, see ?raster
-    ## xvar = column name of 'data' giving x-coordinate
-    ## yvar = column name of 'data' giving y-coordinate
-    ## xmin = min x-coord extent, if NULL min xvar value is used
-    ## xmax = max x-coord extent, if NULL max xvar value is used
-    ## ymin = min y-coord extent, if NULL min yvar value is used
-    ## ymax = max y-coord extent, if NULL max yvar value is used
+# Calculate UTM coords using lat (y) and lon (x)
+###########################################################################
+LongLatToUTM <- function(x,y,zone){
+  xy <- data.frame(ID = 1:length(x), X = x, Y = y)
+  coordinates(xy) <- c("X", "Y")
+  proj4string(xy) <- CRS("+proj=longlat +datum=WGS84")  ## for example
+  res <- spTransform(xy, CRS(paste("+proj=utm +zone=",zone," ellps=WGS84",sep='')))
+  return(as.data.frame(res))
+}
 
-    xmin <- ifelse(is.null(xmin), min(data[[xvar]]), xmin)
-    xmax <- ifelse(is.null(xmax), max(data[[xvar]]), xmax)
-    ymin <- ifelse(is.null(ymin), min(data[[yvar]]), ymin)
-    ymax <- ifelse(is.null(ymax), max(data[[yvar]]), ymax)
 
-    grd <- raster::raster(xmn = xmin, xmx = xmax,
-                          ymn = ymin, ymx = ymax,
-                          res = res, crs = crs)
-
-    return(grd)
+add_UTM_coords <- function(data, lon.var = 'lon', lat.var = 'lat', zone = 8){
+  
+  dat <- data
+  utm <- LongLatToUTM(dat[[lon.var]],dat[[lat.var]],zone)
+  dat$easting_m <- utm$X
+  dat$northing_m <- utm$Y
+    
+  return(dat)
 }
 
 
 
-## get_edf -------------------------------------------------
-gam_edf <- function(fits, pattern, names = NULL) {
-    ## Get EDF and significance for a term in a list of GAM models.
+# --------------------------------------------------------------------------
+# Spatial and Bathymetric 
+# --------------------------------------------------------------------------
 
-    lst <- lapply(fits, .gam_edf, pattern = pattern) ## list of fits
-    out <- as.data.frame(do.call("rbind", lst))
-    names(out) <- "edf"
-
-    if(is.null(names(fits))) {
-        model <- paste0("M", 0:(length(fits) - 1))
-    } else {
-        model <- names(fits) ## list of fits
-    }
-    out <- cbind(model, out)
-
-    if(!is.null(names) & length(names) == nrow(out)) out[ , "model"] <- names
-
-    row.names(out) <- NULL
-    return(out)
-}
-
-if(FALSE) {
-
-    gam_edf(gam_po, "temp_100")
-
-}
-
-.gam_edf <- function(fit, pattern) {
-    ## Get EDF and significance code for a GAM model term. Function returns a
-    ## vector of the EDF with a "*" appended if p < 0.05.
-    ##
-    ## fit = a GAM model object
-    ## pattern = pattern to select model term
-    if(!is(fit, "gam")) {
-        stop("Input is not class 'gam'")
-    }
-
-    x <- summary(fit)$s.table
-    s <- grepl(pattern, row.names(x))
-
-    edf  <- x[s, "edf"]
-    pval <- x[s, "p-value"]
-    if(length(edf) > 0) {
-        star <- ifelse(pval < 0.05, "*", "")
-        out <- paste0(formatC(edf, digits = 2, format = "f"), star)
-    } else {
-        out <- "-"
-    }
-    return(out)
-}
-
-if(FALSE) {
-
-    .gam_edf(gam_po$po3, "v_100_300_kr")
-    .gam_edf(gam_po$po0, "v_100_300_kr")
-
-}
-
-
-## gam_summarize -------------------------------------------
-gam_summarize <- function(fits, order.aic = TRUE, auc = FALSE, names = NULL) {
-    ## Summarize GAM model fits
-    ##
-    ## This function summarizes a fitted GAM model by pulling out relevant
-    ## output stored in the GAM object. The function outputs a data.frame with a
-    ## single row for each model input. If more than one model is supplied, the
-    ## delta-AIC across models is also calculated.
-    ## See: ?gamObject
-    ## See: getAnywhere(AIC.default)
-    ##
-    ## fit = a list of fitted GAM model (object of class 'gam')
-    ## order.aic = logical, should results be sorted by lowest AIC
-    ## auc = logical, should an AUC be calculated
-    ## names = optional vector of names to use for models
-
-    lst <- lapply(fits, .gam_summarize, auc = auc) ## list of fits
-    out       <- plyr::rbind.fill(lst)
-    min.ind   <- which.min(out$aic)
-    out$d.aic <- out$aic - out$aic[which.min(out$aic)]
-    if(is.null(names(fits))) {
-        model <- paste0("M", 0:(length(fits) - 1))
-    } else {
-        model <- names(fits) ## list of fits
-    }
-    out <- cbind(model, out)
-
-    if(!is.null(names) & length(names) == nrow(out)) out[ , "model"] <- names
-
-    if(order.aic & length(out$d.aic) > 1) {
-        out <- out[order(out$d.aic), ]
-    }
-
-    row.names(out) <- NULL
-    return(out)
-}
-
-
-.gam_summarize <- function(x, auc = FALSE) {
-    ## Summarize GAM model fit
-    ##
-    ## This function summarizes a fitted GAM model by pulling out relevant
-    ## output stored in the GAM object. The function outputs a data.frame with a
-    ## single row. See: ?gamObject
-    ##
-    ## x = a fitted GAM model (object of class 'gam')
-    ## auc = logical, should an AUC be calculated
-
-    if(!is(x, "gam")) {
-        stop("Input is not class 'gam'")
-    }
-
-    aic           <- x$aic
-    deviance      <- x$deviance
-    null.deviance <- x$null.deviance
-    converged     <- x$converged
-    boundary      <- x$boundary
-    r.sq          <- summary(x)$r.sq
-    gcv           <- x$gcv.ubre
-    method        <- x$method
-    edf           <- sum(summary(x)$edf)
-    n             <- summary(x)$n
-    np            <- summary(x)$np
-    dev.expl      <- summary(x)$dev.expl
-    family        <- x$family$family
-    link          <- x$family$link
-    mse           <- mean(residuals(x, type = "response")^2)
-    rmse          <- sqrt(mse)
-
-    edf <- ifelse(length(edf) == 0, NA, edf)
-
-    df <- data.frame(dev.expl      = dev.expl,
-                     r.sq          = r.sq,
-                     aic           = aic,
-                     deviance      = deviance,
-                     gcv           = gcv,
-                     method        = method,
-                     null.deviance = null.deviance,
-                     converged     = converged,
-                     boundary      = boundary,
-                     edf           = edf,
-                     n             = n,
-                     np            = np,
-                     family        = family,
-                     link          = link,
-                     mse           = mse,
-                     rmse          = rmse,
-                     stringsAsFactors = FALSE)
-
-    if(auc) {
-        df$auc <- pROC::roc(x$y, x$fitted.values, plot = FALSE, quiet = TRUE)$auc[1]
-    }
-
-    row.names(df) <- NULL
-    return(df)
-}
-
-
-## gam_vc --------------------------------------------------
-gam_vc <- function(model, newdata, var, term) {
-    ## Get 2D variable coefficient slope for prediction grid
-    ##
-    ## model = fitted gam model
-    ## newdata = newdata used for prediction
-    ## var = string, column name in newdata for the vc variable
-    ## term = string, gam model term for vc term
-
-    pred <- predict(model, newdata = newdata, type = "terms",
-                    terms = term, se = TRUE)
-
-    pdat <- newdata
-    pdat$slope <- as.vector(pred$fit[ , 1] / newdata[ , var])
-    pdat$ci    <- as.vector((pred$se[ , 1] / newdata[ , var]) * qnorm(0.975))
-    pdat$lower <- pdat$slope - pdat$ci
-    pdat$upper <- pdat$slope + pdat$ci
-    pdat$sig   <- (pdat$lower < 0 & pdat$upper < 0) | (pdat$lower > 0 & pdat$upper > 0)
-
-    xmin <- min(newdata[["easting_m"]], na.rm = TRUE)
-    xmax <- max(newdata[["easting_m"]], na.rm = TRUE)
-    ymin <- min(newdata[["northing_m"]], na.rm = TRUE)
-    ymax <- max(newdata[["northing_m"]], na.rm = TRUE)
-    xmin <- xmin - (xmin * 0.01)
-    xmax <- xmax + (xmin * 0.01)
-    ymin <- ymin - (ymin * 0.01)
-    ymax <- ymax + (ymin * 0.01)
-    limits = data.frame(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax)
-
-    list(data = pdat, limits = limits)
-
-}
-
-
-
-## plot_gam_2d_vc ------------------------------------------
-plot_gam_2d_vc <- function(x,
-                           title = "",
-                           xlab = "Eastings",
-                           ylab = "Northings",
-                           fill_lab = "",
-                           point_size = 0.7,
-                           lonlat = FALSE,
-                           plot = TRUE,
-                           se = TRUE) {
-    ## Plot variable coefficient GAM slopes
-    ##
-    ## x = list of data, should be in format output from `plot.gam`
-    ## type = "bubble" or "point" or "raster"
-    ## se = logical, should significant locations be indicated (only implemented
-    ##      for type = "raster"
-
-    col.mid   <- "grey95"
-    col.low   <- RColorBrewer::brewer.pal(8, "Set1")[2]
-    col.high  <- RColorBrewer::brewer.pal(8, "Set1")[1]
-
-    gr       <- expand.grid(x = x$x, y = x$y)
-    pdat     <- data.frame(gr, slope = as.vector(x$fit))
-    pdat     <- na.omit(pdat)
-    pdat$col <- ifelse(pdat$slope > 0, "pos", "neg")
-
-    xmin <- min(pdat[["x"]], na.rm = TRUE)
-    xmax <- max(pdat[["x"]], na.rm = TRUE)
-    ymin <- min(pdat[["y"]], na.rm = TRUE)
-    ymax <- max(pdat[["y"]], na.rm = TRUE)
-    xmin <- xmin - (xmin * 0.01)
-    xmax <- xmax + (xmin * 0.01)
-    ymin <- ymin - (ymin * 0.01)
-    ymax <- ymax + (ymin * 0.01)
-
-    if(lonlat) {
-        map <- namerica_state_wgs_df
-        bath <- bath_200_wgs_df
-    } else {
-        map <- namerica_state_utm_df
-        bath <- bath_200_utm_df
-    }
-
-    if(se) {
-        ci <- na.omit(x$se * qnorm(0.975))
-        pdat$lower <- pdat$slope - ci
-        pdat$upper <- pdat$slope + ci
-        pdat$sig <- (pdat$lower < 0 & pdat$upper < 0) |
-                    (pdat$lower > 0 & pdat$upper > 0)
-    }
-
-    g <- ggplot(pdat) +
-        geom_tile(aes(x, y, fill = slope))
-    if(se) {
-        g <- g + geom_point(data = pdat[pdat$sig, ], aes(x = x, y = y),
-                            size = point_size, shape = 16)
-    }
-    g <- g + geom_sf(data = map, fill = "grey90", color = "grey30", size = 0.2) +
-        scale_x_continuous(limits = c(xmin, xmax), expand = expansion(mult = 0.05)) +
-        scale_y_continuous(limits = c(ymin, ymax), expand = expansion(mult = 0.05)) +
-        ggtitle(title) +
-        scale_fill_gradient2(low = col.low,
-                             mid = col.mid,
-                             high = col.high, midpoint = 0.0,
-                             space = "Lab",
-                             na.value = "green") +
-        labs(fill = fill_lab, x = xlab, y = ylab) +
-        theme_simple() +
-        theme(axis.text.x = element_blank(),
-              axis.text.y = element_blank(),
-              axis.ticks.x = element_blank(),
-              axis.ticks.y = element_blank())
-
-    if(plot) print(g)
-    invisible(pdat)
-}
-
-
-
-## plot_gam_1d ---------------------------------------------
-plot_gam_1d <- function(x, se.mult = 1,
-                        xlab = NULL,
-                        ylab = NULL,
-                        title = NULL,
-                        rug = TRUE,
-                        size = 1,
-                        plot = TRUE) {
-    ## Plot a GAM 1-d smooth
-    ##
-    ## x = list of data, should be in format output from `plot.gam`
-    ## se.mult = value to multiply standard error by
-    ## rug = logical, should a rug be added to plot
-
-    if("y" %in% names(x)) {
-        stop("x is not a 1-d smooth")
-    }
-
-    fit    <- as.vector(x$fit)
-    se.fit <- x$se
-    lower  <- fit - (se.mult * se.fit)
-    upper  <- fit + (se.mult * se.fit)
-
-    if(is.null(xlab)) xlab <- x$xlab
-    if(is.null(ylab)) ylab <- x$ylab
-
-    dat <- data.frame(fit = as.vector(x$fit),
-                      se.fit = x$se,
-                      x = x$x,
-                      lower = fit - (se.mult * se.fit),
-                      upper = fit + (se.mult * se.fit))
-
-    g <- ggplot(dat) +
-        geom_hline(yintercept = 0, color = "grey50", linetype = 2, size = 0.3) +
-        geom_ribbon(aes(x = x, ymin = lower, ymax = upper), fill = "grey25", alpha = 0.2) +
-        geom_line(aes(x = x, y = fit), size = size) +
-        labs(x = xlab,
-             y = ylab,
-             title = title) +
-        theme_simple()
-
-    if(rug) {
-        g <- g + geom_rug(data = data.frame(x = x$raw), aes(x = x),
-                          length = unit(0.02, "npc"),
-                          color = "grey40")
-    }
-
-    if(plot) print(g)
-
-    invisible(dat)
-}
-
-
-
+# The following function add_shelf_distance is the work of Michael Malick
 add_shelf_distance <- function(data,
                                shelf,
                                proj.data      = proj_wgs,
@@ -507,7 +136,667 @@ add_shelf_distance <- function(data,
   
   return(dat)
 }
+#########################################################################
 
 
+get_bathymetry <- function(data = js_temp, lat.var = 'lat', lon.var = 'lon', res = 0.5){
+  
+  lon1 <- min(data[[lon.var]])
+  lon2 <- max(data[[lon.var]])
+  lat1 <- min(data[[lat.var]])
+  lat2 <- max(data[[lat.var]])
+  bath <- getNOAA.bathy(lon1, lon2, 
+                        lat1, lat2, resolution = res)
+}
+
+
+points_within_dist <- function(p1, dist, min_years) {
+  #' Identify points within 
+  #' p1: Dataframe with columns: easting_m, northing_m, year
+  #' dist Numeric. Threshold distance in kilometers.
+  #' min_years Integer. Minimum required unique years in neighborhood.
+  #' return Numeric vector of indices for points to be removed.
+
+  
+  #'   ## This function takes as input two sets of x,y locations and for each point
+  ## in the first set (p1), finds the set of points in the second set (p2) that
+  ## are within dist km. 
+  ## Variables: 
+  ## p1 has columns of "easting_m", "northing_m", and "year" in that order
+  ## dist is the threshold distance between points in p1 for which they are selected
+  ## min_years is the minimum number of different years of nearby data required
+  ##    for a point to not be excluded
+  ## The function returns 
+  ## a vector ind_out with values corresponding to the index of 
+  ##    points in p1 that are NOT surrounded by points from different years
+  ##    These points are ideally removed outside this function
+  
+  ind_out <- double()
+  for(i in 1:nrow(p1)){
+
+    x.sq   <- (p1[i, 1] - p1[-c(i), 1])^2
+    y.sq   <- (p1[i, 2] - p1[-c(i), 2])^2
+    dist.i <- sqrt(x.sq + y.sq)
+
+    year_i <- p1[i, 3]
+    ind_i <- which(dist.i < dist)
+
+    if(length(unique(p1[ind_i, 3])) <= min_years){
+      ind_out <- c(ind_out, i)
+    }
+  }
+  
+  return(ind_out)
+}
+
+
+
+# --------------------------------------------------------------------------
+# Model Training 
+# --------------------------------------------------------------------------
+
+train_js_bmass_gams <- function(data, formulas = formulas.bmass.total, subset = 'wgt_total'){
+  
+  ########################################
+  # create a suite of gams using JSCOPE data
+  # data - training data set (hake_js)
+  # subset - variable that needs to be positive for training (wgt_total)
+  # -- i.e. wgt_total > 0 for biomass model of log_wgt_total
+  # response variable is determined in formulas
+  ###########################################
+  
+  print('training density gam!')
+  
+  # Train on points with positive biomass
+  train_data <- data[which(data[[subset]] > 0), ]
+  
+  out <- list()
+  for(i in 1:length(formulas)){
+    out[[i]] <- mgcv::gam(formulas[[i]],
+                          data = train_data,
+                          method = "REML")
+  }
+
+  return(out)
+}
+
+
+train_js_pa_gams <- function(data, formulas = formulas.pa.total){
+  
+  ########################################
+  # create a suite of gams using JSCOPE data
+  # data - training data set (hake_js)
+  # response variable is determined in formulas
+  ###########################################
+  
+  print('training occurrence gam!')
+  
+  out <- list()
+  for(i in 1:length(formulas)){
+    out[[i]] <- mgcv::gam(formulas[[i]],
+                          data = data, 
+                          family = binomial(),
+                          method = "REML")
+  }
+  
+  return(out)
+}
+
+
+
+# --------------------------------------------------------------------------
+# Validation and Metrics 
+# --------------------------------------------------------------------------
+
+
+lfo_analysis_bmass_gams <- function(data = hake_js, 
+                                     target = 'log_wgt_total', 
+                                     subset = 'wgt_total', 
+                                     fxn = train_js_bmass_gams, 
+                                     forms = formulas$bmass.total,
+                                     nyears = 7){
+  
+  ###############################################################################
+  # Trains density gams (given by forms parameter) on first n years of data starting with n = 2
+  # Predicts on n+1st year and finds rmse between prediction and observed data
+  # Finds mean RMSE over all years for each gam
+
+  years <- tail(unique(data$year), nyears)
+  RMSE_list <- list()
+  
+  #train suite of gams using first i years of data, predict the i+1th year, and calculate the RMSE
+  for(i in 1:(nyears)){
+    
+    data_train <- data[which(data$year < years[i]), ]
+    data_next <- data[which(data$year == years[i]), ]
+    
+    gams_bmass_i <-  fxn(data = data_train, formulas = forms, subset = subset)
+    
+    # Calculates RMSE between predicted biomass and observed biomass
+    rmse_i <- rmse_bmass_gams(gam_list = gams_bmass_i, prediction_data = data_next, target = target)
+    
+    RMSE_list[[i]] <- rmse_i
+  }
+  RMSE_array <- do.call(cbind, RMSE_list)
+  
+  mean_array <- array(dim = c(nrow(RMSE_array), ncol(RMSE_array)+1))
+  mean_array[, 1:ncol(mean_array)-1] <- RMSE_array
+  mean_array[,ncol(mean_array)] <- rowMeans(RMSE_array)
+  RMSE_array <- mean_array 
+  
+  return(RMSE_array)
+}
+
+
+lfo_analysis_pa_gams <- function(data = hake_js, 
+                                  target = 'present_total', 
+                                  fxn = train_js_pa_gams, 
+                                  forms = formulas$pa.total,
+                                  nyears = 7){
+  
+  ###############################################################################
+  # Trains occurrence gams (given by formulas parameter) on first n years of data starting with n = 2
+  # Predicts on n+1st year and finds AUC between that prediction and the observed occurrence
+  # Finds mean AUC over all years for each gam
+  
+  years <- tail(unique(data$year), nyears)
+  AUC_list <- list()
+  
+  #train suite of gams using first i years of data, predict the i+1th year, and calculate the AUC
+  for(i in 1:(nyears)){
+    
+    data_train <- data[which(data$year < years[i]), ]
+    data_next <- data[which(data$year == years[i]), ]
+    
+    gams_pa_i <-  fxn(data = data_train, formulas = forms)
+    
+    # Calculates AUC between predicted presence and observed presence
+    auc_i <- double(length(gams_pa_i))
+    for(j in 1:length(gams_pa_i)){
+      
+      pred_j <- predict(gams_pa_i[[j]], newdata = data_next, type = 'response', exclude = "s(year_fac)")
+      
+      # AUC
+      roc_curve <- roc(data_next[[target]], pred_j)
+      auc_i[j] <- auc(roc_curve)
+    }
+    
+    AUC_list[[i]] <- auc_i
+  }
+  AUC_array <- do.call(cbind, AUC_list)
+  
+  mean_array <- array(dim = c(nrow(AUC_array), ncol(AUC_array)+1))
+  mean_array[, 1:ncol(mean_array)-1] <- AUC_array
+  mean_array[,ncol(mean_array)] <- rowMeans(AUC_array)
+  AUC_array <- mean_array 
+  
+  return(AUC_array)
+}
+
+
+rmse_bmass_gams <- function(gam_list, prediction_data, target = 'log_wgt_total'){
+  ############################
+  # Finds the RMSE of each of a suite of gams
+  # returns a vector of length length(gam_list) holding in each gam's respective rmse
+  
+  rmse_all <- rep(0, length(gam_list))
+  for(i in 1:length(gam_list)){
+    gam_i <- gam_list[[i]]
+    prediction_i <- predict(gam_i, newdata = prediction_data, type = 'response', exclude = "s(year_fac)") # Chance if year_fac is not used as random effect
+    rmse_i <- rmse(prediction_i, prediction_data[[target]])
+    rmse_all[i] <- rmse_i
+  }
+  
+  return(rmse_all)
+}
+
+
+auc_pa_gams <- function(gam_list, prediction_data = data_next, target = 'present_total'){
+  
+  auc <- double(length(gam_list))
+  for(i in 1:length(gam_list)){
+    
+    # Predict presence under future year
+    pred_i <- predict(gam_list[[j]], prediction_data, type = 'response', exclude = "s(year_fac)")
+    
+    # Find AUC metric
+    roc_curve <- roc(prediction_data[[target]], pred_j)
+    auc_i <- auc(roc_curve)
+    
+    auc[j] <- auc_i
+  }
+}
+
+
+rmse <- function(true_vec, predicted_vec){
+  ############################
+  # find RMSE of predicted vector as compared to the true vector
+  if(length(true_vec) != length(predicted_vec)){stop('Error: trained and predicted vectors not same length')}
+  
+  return(sqrt(mean((true_vec - predicted_vec)^2, na.rm = T)))
+}
+
+
+# --------------------------------------------------------------------------
+# Simulation and Output
+# --------------------------------------------------------------------------
+
+
+sim_delta_ntimes <- function(gam_bmass, gam_pa, pred_data, n = 5000){
+  ###############################
+  ## Makes n simulations of delta output given the biomass and presence gams provided.
+  ## Returns array with columns containing full prediction sets for a given simulation and 
+  ## rows containing all simulated values for a given location
+  ## Variables:
+  ## gam_bmass is the biomass gam to be used in the simulation
+  ## gam_pa is the presence gam to be used in the simulation
+  ## pred_data is the prediction dataset used to make the model output
+  ## n is the number of output simulations to be created in this function
+  
+  # Gaussian model simulation
+  ###########################################################################################
+  # Make predictions on pred_data set
+  # Simulate n gaussian output prediction sets using the fit and se.fit
+  # - simulating n sets of predictions appends each set in sequence to sim_gauss - tested
+  # restructure into array - rows are each point, columns are sets of predictions - tested
+  # transform back to normal space using Eric Ward's suggested bias correction
+  pred_gauss_with_se <- predict(gam_bmass, newdata = pred_data, type = "link", exclude = "s(year_fac)", se.fit = T)
+  pred_gauss_draws <- rnorm(length(pred_gauss_with_se$fit) * n, pred_gauss_with_se$fit, pred_gauss_with_se$se.fit) # randomly selects one value from prob dist of each prediction point based on the given fit (mean) and se
+  sim_gauss_array <- array(pred_gauss_draws, dim = c(nrow(pred_data), n))
+  sim_gauss <- exp(sim_gauss_array + c((pred_gauss_with_se$se.fit^2)/2)) # bias correction
+  
+  # Binomial model simulation
+  ###########################################################################################
+  # Make predictions on pred_data set
+  # Simulate n binomial output prediction sets using fit and se.fit
+  # restructure just like above section
+  # transform binomial to probability space
+  pred_binomial_with_se <- predict(gam_pa, newdata = pred_data, type = "link", exclude = "s(year_fac)", se.fit = T)
+  pred_binom_draws <- rnorm(length(pred_binomial_with_se$fit) * n, pred_binomial_with_se$fit, pred_binomial_with_se$se.fit)
+  sim_binom_array <- array(pred_binom_draws, dim = c(nrow(pred_data), n))
+  sim_binomial <- plogis(sim_binom_array)
+  
+  # Combine predictions
+  combined_sim_pred <- sim_gauss * sim_binomial
+  
+  return(combined_sim_pred)
+}
+
+
+
+lfo_monte_carlo_sim <- function(train_data = hake_js, 
+                                pred_data = temp_js, 
+                                subset = 'wgt_total', 
+                                start_train = 2012,
+                                formula.bmass = best.formulas$bmass.total, 
+                                formula.pa = best.formulas$pa.total, 
+                                n_sims = 5000){
+  
+  ###############################################################################
+  ## Find both Spatially Explicit and Region Averaged mean predicted biomass and SE using Monte Carlo simulation 
+  ## Variables: 
+  ## - train_data is the data.frame that is used in model training
+  ##    - has all necessary variables to train models given the passed model formulas
+  ## - pred_data is the prediction data set
+  ##    - has all necessary variables to predict output given the passed model formulas
+  ## - start_train is the first year for which this produces an LFO prediction It then produces one for evey subsequent year
+  ## - formula.bmass is the formula for the density (biomass) model which we want to use in the delta formulation. Set to the best bmass model found in model_selection.R
+  ## - formula.pa is the formula for the occurrence (presence) model which we want to use in the delta formulation. Set to the best pa model found in model_selection.R
+  ## - n_sims is the number of simulations to be run for each year's LFO prediction 
+  ## Returns a list
+  ##  - out_reg - averaged biomass over each region (total, US, CA) for each prediction year with SD and SE of averages
+  ##  - out_spat_expl - spatially explicit predictions for each prediction year (locations defined by read order, each with a unique lat/lon combination)
+  
+  # Set temporal boundaries for training and prediction in LFO analysis
+  start_train_ind <- which(unique(pred_data$year) == start_train)
+  years <- unique(pred_data$year)[start_train_ind:length(unique(pred_data$year))]
+  nyears <- length(years)
+  
+  # make lists to store regional and spat expl output
+  out_reg_list <- list()
+  out_spat_expl_list <- list()
+  
+  for(i in 1:nyears){
+    
+    data_train <- train_data[which(train_data$year < years[i]), ]
+    data_pred <- pred_data[pred_data$year == years[i], ]
+    
+    gam_bmass_i <- gam(formula.bmass, 
+                       data = data_train[which(data_train[[subset]] > 0), ],
+                       method = "REML")
+    
+    gam_pa_i <- gam(formula.pa, 
+                    data = data_train,
+                    family = binomial(),
+                    method = "REML")
+    
+    # simulate output n times and find mean output for each location
+    simulations_i <- sim_delta_ntimes(gam_bmass = gam_bmass_i, 
+                                      gam_pa = gam_pa_i, 
+                                      pred_data = data_pred, 
+                                      n = n_sims)
+    mean_pred_i <- rowMeans(simulations_i)
+    
+    # find coefficient of variation (CV) at each location
+    # over each row, k (each prediction location), find SE and calculate CV (se/mean)
+    #################################################################################
+    se_i <- double(length = nrow(simulations_i))
+    cv_i <- double(length = nrow(simulations_i))
+    for(k in 1:nrow(simulations_i)){
+      se_i[k] <- sd(simulations_i[k, ])
+      cv_i[k] <- se_i[k] / mean_pred_i[k]
+    }
+    out_spat_expl_list[[i]] <- data.frame(mean = mean_pred_i, 
+                                          se = se_i,
+                                          cv = cv_i, 
+                                          year = years[i], 
+                                          read_order = data_pred$read_order)
+    
+    
+    # find SE of regionally aggregated predicted biomass
+    #################################################################################
+    # 1. separate predictions in US and Canada
+    # 2. find mean of predictions over each region for each simulation
+    # 3. find mean and sd of the region means across simulations
+    
+    # - predictions are made with data_pred -> output in total_sim_array corresponds to locations of pred_data
+    in_US <- in.chull(data_pred$lon, data_pred$lat, border_chull$lon, border_chull$lat)
+    
+    # 1. Separate US and CAN simulated biomass
+    US_array <- simulations_i[in_US,] 
+    CAN_array <- simulations_i[!in_US,]
+    
+    # 2. Sum biomass across each region for each year
+    US_sums <- colSums(US_array)
+    CAN_sums <- colSums(CAN_array)
+    
+    # 3. Find how biomass sums vary across simulations
+    mean_reg <- c(mean(US_sums), mean(CAN_sums))
+    se_reg <- c(sd(US_sums), sd(CAN_sums))
+    cv_reg <- sd_reg/mean_reg
+    region <- c('US', 'CAN')
+    out_reg_list[[i]] <- data.frame(mean_reg, sd_reg, se_reg, cv_reg, region, year = years[i])
+  }
+  
+  out_spat_expl <- do.call(rbind, out_spat_expl_list)
+  out_reg <- do.call(rbind, out_reg_list)
+  out_list <- list(out_spat_expl, out_reg)
+  names(out_list) <- c("out_spat_expl", "out_reg")
+  
+  return(out_list)
+}
+
+
+
+# --------------------------------------------------------------------------
+# Visualization 
+# --------------------------------------------------------------------------
+
+
+plot_heatmap <- function(data, years, age = 'total', names, 
+                         type = 'RMSE', lims = c(0,4), data_type = 'J-SCOPE', 
+                         xlab = "year predicted"){
+  ############################
+  # plots accuracy of each tested model in model_selection.R for each year investigated
+  # RMSE is plotted for density models
+  # AUC is plotted for occurrence models
+  
+  # flip rows for plotting
+  dat <- data[rev(1:nrow(data)),]
+  
+  dat_df <- melt(dat)
+  dat_df$model <- factor(dat_df$Var1)
+  dat_df$year <- factor(dat_df$Var2)
+  
+  if(type == 'RMSE'){
+    g <- ggplot(data = dat_df, aes(x = year, y = model, fill = value)) +
+      geom_tile() +
+      geom_text(aes(label = round(value, 3)), size = 3.5) +
+      scale_fill_gradientn(colours = rev(heat.colors(20)),  
+                           name = expression(paste('RMSE of\nlog'[e], '(B)')), 
+                           limits = lims, 
+                           oob = scales::squish) +
+      scale_x_discrete(labels = years) +  
+      scale_y_discrete(labels = names)  +    
+      theme(axis.text.x=element_text(size=10),
+            axis.text.y=element_text(size=10),
+            axis.title.x=element_text(size=12),
+            axis.title.y=element_text(size=12),
+            plot.title = element_text(hjust = 0.5)) +
+      labs(title = age,
+           x = xlab,
+           y = "model")
+  }else{
+    g <- ggplot(data = dat_df, aes(x = year, y = model, fill = value)) +
+      geom_tile() +
+      geom_text(aes(label = round(value, 3)), size = 3.5) +
+      scale_fill_gradientn(colours = heat.colors(20),  # You can customize the color palette
+                           name = "AUC", 
+                           limits = lims, 
+                           oob = scales::squish) +
+      scale_x_discrete(labels = years) +  # Customize X-axis labels
+      scale_y_discrete(labels = names) +  # Customize Y-axis labels
+      theme(axis.text.x=element_text(size=10),
+            axis.text.y=element_text(size=10),
+            axis.title.x=element_text(size=12),
+            axis.title.y=element_text(size=12),
+            plot.title = element_text(hjust = 0.5)) +
+      labs(title = age,
+           x = xlab,
+           y = "model")
+  }
+  
+  return(g)
+}
+
+
+
+
+
+plot_hist_years_delta <- function(data, delta_lims, years, age){
+  
+  ############################
+  ## plot specific years' delta predictions for each age class
+  ## data should be of the form spat_expl_simulation_outputs--created in generate_output.R
+  
+  plot_list <- list()
+  
+  for(i in 1:length(years)){
+    plot_delta_pred <- ggplot(data[data$age == age & data$year == years[i], ]) +
+      geom_point(aes(x = easting_m, y = northing_m, color = mean), shape = 15, size = 0.06) +
+      geom_sf(data = bath_200_utm_df, fill = NA, color = "grey90", size = 0.2) +  
+      geom_sf(data = namerica_state_utm_df,fill = "grey90", color = "grey10", size = 0.2) +
+      labs(x = "Longitude",
+           y = "Latitude",
+           color = 'kg',
+           title = paste0('Predicted Biomass for ', years[i])) +
+      scale_x_continuous(breaks = c(-127, -125), limits = c(xmin, xmax)) +
+      ylim(ymin, ymax) +
+      scale_color_viridis(limits = delta_lims, oob = scales::squish) +
+      theme_simple(base_size = 8, grid = TRUE) +
+      theme(plot.title = element_text(hjust = 0.5),
+            panel.spacing.x = unit(-0.5, "pt"),
+            panel.spacing = unit(1, "lines"),
+            legend.justification = c(0, 0),
+            legend.position = c(0.01, 0.005),
+            legend.title.align = 0.5,
+            legend.key.size = unit(0.4, "cm"),
+            legend.background = element_blank(),
+            legend.text = element_text(size = 6),
+            legend.title = element_text(size = 6),
+            panel.grid.major = element_line(size = 0.2))
+    plot_list[[i]] <- plot_delta_pred
+  }
+  
+  return(plot_list)
+}
+
+
+
+
+plot_ageclass_maps <- function(data, mean_lims, se_lims, change_lims, age_group){
+  
+  #############################
+  ## Plots mean forecasted biomass maps, corresponding CV, and change in biomass from 2023 to 2024
+  ## data should be of form spatExpl_sim_out--created in generate_output.R
+  
+  
+  plot_mean <- ggplot(data[data$age == age_group, ]) +
+    geom_point(aes(x = easting_m, y = northing_m, color = mean_post/1000), shape = 15, size = 0.06) +
+    labs(x = "Longitude",
+         y = "Latitude",
+         color = 'kg x 10^3',
+         title = paste0('Predicted Biomass')) +
+    geom_sf(data = bath_200_utm_df, fill = NA, color = "grey90", size = 0.2) +  
+    geom_sf(data = namerica_state_utm_df,fill = "grey90", color = "grey10", size = 0.2) +
+    scale_x_continuous(breaks = c(-127, -125), limits = c(xmin, xmax)) +
+    ylim(ymin, ymax) +
+    scale_color_viridis(limits = mean_lims, oob = scales::squish) +
+    theme_simple(base_size = 8, grid = TRUE) +
+    theme(plot.title = element_text(hjust = 0.5),
+          panel.spacing.x = unit(-0.5, "pt"),
+          panel.spacing = unit(1, "lines"),
+          legend.justification = c(0, 0),
+          legend.position = c(0.01, 0.005),
+          legend.title.align = 0.5,
+          legend.key.size = unit(0.4, "cm"),
+          legend.background = element_blank(),
+          legend.text = element_text(size = 6),
+          legend.title = element_text(size = 6),
+          panel.grid.major = element_line(size = 0.2))
+  
+  plot_se <- ggplot(data[data$age == age_group, ]) +
+    geom_point(aes(x = easting_m, y = northing_m, color = se_post/1000), shape = 15, size = 0.06) +
+    geom_sf(data = bath_200_utm_df, fill = NA, color = "grey90", size = 0.2) +  
+    geom_sf(data = namerica_state_utm_df,fill = "grey90", color = "grey10", size = 0.2) +
+    labs(x = "Longitude",
+         y = "Latitude",
+         color = 'kg x 10^3',
+         title = paste0('Prediction SE')) +
+    scale_x_continuous(breaks = c(-127, -125), limits = c(xmin, xmax)) +
+    ylim(ymin, ymax) +
+    scale_color_viridis(limits = se_lims, oob = scales::squish) +
+    theme_simple(base_size = 8, grid = TRUE) +
+    theme(plot.title = element_text(hjust = 0.5),
+          panel.spacing.x = unit(-0.5, "pt"),
+          panel.spacing = unit(1, "lines"),
+          legend.justification = c(0, 0),
+          legend.position = c(0.01, 0.005),
+          legend.title.align = 0.5,
+          legend.key.size = unit(0.4, "cm"),
+          legend.background = element_blank(),
+          legend.text = element_text(size = 6),
+          legend.title = element_text(size = 6),
+          panel.grid.major = element_line(size = 0.2))
+
+  
+  plot_mean_change <- ggplot(data[data$age == age_group, ]) +
+    geom_point(aes(x = easting_m, y = northing_m, color = mean_diff/1e3), 
+               shape = 15, size = 0.06) +
+    
+    # Updated shaded grid logic for 25% threshold
+    geom_point(data = {
+      # 1. Take all points for this age group (not just significant ones)
+      grid_df <- data[data$age == age_group, ]
+      
+      # 2. Round coordinates to create the 15km bins
+      grid_df$east_grid <- round(grid_df$easting_m / 15000) * 15000
+      grid_df$north_grid <- round(grid_df$northing_m / 15000) * 15000
+      
+      # 3. Group by the grid bins and calculate the ratio of significance
+      grid_summary <- grid_df %>%
+        group_by(east_grid, north_grid) %>%
+        summarize(sig_ratio = mean(mean_is_significant, na.rm = TRUE), .groups = 'drop') %>%
+        filter(sig_ratio >= 0.25) # The 25% threshold
+      
+      grid_summary
+    },
+    aes(x = east_grid, y = north_grid),
+    shape = 3,      
+    size = 0.2, 
+    color = "black", 
+    alpha = 0.4) +
+    
+    geom_sf(data = bath_200_utm_df, fill = NA, color = "black", size = 0.2) +  
+    geom_sf(data = namerica_state_utm_df, fill = "grey90", color = "grey10", size = 0.2) +
+    labs(x = "Longitude",
+         y = "Latitude",
+         color = 'kg x 10^3',
+         title = paste0('Change in Biomass')) +
+    scale_x_continuous(breaks = c(-127, -125), limits = c(xmin, xmax)) +
+    ylim(ymin, ymax) +
+    scale_color_gradient2(low = "steelblue",
+                          mid = "grey90",
+                          high = "red3",
+                          na.value = "transparent",
+                          breaks = c(min(change_lims), min(change_lims)/2, 0, 
+                                     max(change_lims)/2, max(change_lims)),
+                          limits = change_lims,
+                          midpoint = 0,
+                          oob = scales::squish) +    
+    theme_simple(base_size = 8, grid = TRUE) +
+    theme(plot.title = element_text(hjust = 0.5),
+          panel.spacing.x = unit(-0.5, "pt"),
+          panel.spacing = unit(1, "lines"),
+          legend.justification = c(0, 0),
+          legend.position = c(0.01, 0.005),
+          legend.title.align = 0.5,
+          legend.key.size = unit(0.4, "cm"),
+          legend.background = element_blank(),
+          legend.text = element_text(size = 6),
+          legend.title = element_text(size = 6),
+          panel.grid.major = element_line(size = 0.2))
+  
+  full_plot <- gridExtra::grid.arrange(plot_mean, plot_se, plot_mean_change, ncol = 3)
+  return(full_plot)
+}
+
+
+## The following function (theme_simple) belongs to Michael Malick
+##################################################################
+theme_simple <- function(base_size = 11,
+                         base_family = "",
+                         grid = FALSE,
+                         mode = "light") {
+  
+  half_line <- base_size / 2
+  if(mode == "dark") {
+    grey0 <- "grey70"
+    grey1 <- "grey30"
+    grey2 <- "grey18"
+    bg    <- "black"
+  } else {
+    grey0 <- "grey30"
+    grey1 <- "grey70"
+    grey2 <- "grey87"
+    bg    <- NA
+  }
+  
+  x <- theme_light(base_size = base_size, base_family = base_family) +
+    theme(plot.background = element_rect(fill = bg, colour = NA),
+          panel.background = element_rect(fill = bg, colour = NA),
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          axis.ticks.length = unit(half_line / 2.2, "pt"),
+          strip.background = element_rect(fill = NA, colour = NA),
+          strip.text.x = element_text(colour = grey0),
+          strip.text.y = element_text(colour = grey0),
+          axis.text = element_text(colour = grey0),
+          axis.title = element_text(colour = grey0),
+          legend.title = element_text(colour = grey0, size = rel(0.9)),
+          panel.border = element_rect(fill = NA, colour = grey1, size = rel(1.1)),
+          legend.key.size = unit(0.9, "lines"),
+          legend.text = element_text(size = rel(0.7), colour = grey0),
+          legend.key = element_rect(colour = NA, fill = bg),
+          legend.background = element_rect(colour = NA, fill = bg),
+          plot.title = element_text(colour = grey0, size = rel(1)),
+          plot.subtitle = element_text(colour = grey0, size = rel(.85)),
+          plot.caption = element_text(colour = grey0, size = rel(0.8)),
+          plot.tag = element_text(colour = grey0, size = rel(1.1)))
+  if(grid) {
+    x <- x + theme(panel.grid.major = element_line(color = grey2, size = 0.2))
+  }
+  return(x)
+}
 
 

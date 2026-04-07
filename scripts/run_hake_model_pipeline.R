@@ -27,7 +27,7 @@ cat("Starting analysis pipeline at:", as.character(start_time), "\n")
 # Module 1: Environment Setup
 # Loads libraries (mgcv, sf, terra) and custom Delta Model functions.
 cat("Step 1: Loading functions and environmental assets...\n")
-source("./scripts/my_functions.R", echo = FALSE) 
+source("./scripts/functions.R", echo = FALSE) 
 source("./scripts/load.R", echo = FALSE)
 
 # Module 2: Model Definition

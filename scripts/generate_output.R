@@ -94,73 +94,10 @@ save(spat_expl_simulation_outputs, file = './outputs/output_stats/spat_expl_simu
 
 
 
-
-#### construction --------------------------
-
-# Create grid 
-grid <- pred_data[pred_data$year == 2015, c("lat", "lon", "easting_m", "northing_m", "read_order")]
-
-pre_year <- 2023
-post_year <- 2024
-
-# Calculate mean pre delta-model forecast map by location/age class using the original row index (read order)
-sim_out_pre_list <- list()
-ages <- unique(spat_expl_simulation_outputs$age)
-nages <- length(ages)
-for(i in 1:nages){
-  sim_age_i <- spat_expl_simulation_outputs[spat_expl_simulation_outputs$age == ages[i] & spat_expl_simulation_outputs$year == pre_year,]
-  stopifnot(all(grid$read_order == sim_age_i$read_order))  # make sure read_orders line up in grid and simulation
-  sim_out_pre_list[[i]] <- data.frame(grid, age = ages[i], year = sim_age_i$year, mean = sim_age_i$mean, cv = sim_age_i$cv, se = sim_age_i$se)
-  names(sim_out_pre_list)[i] <- ages[i]
-}
-sim_out_pre <- do.call(rbind, sim_out_pre_list)
-
-# Calculate post mean delta-model forecast map by location/age class using the original row index (read order)
-sim_out_post_list <- list()
-for(i in 1:nages){
-  sim_age_i <- spat_expl_simulation_outputs[spat_expl_simulation_outputs$age == ages[i] & spat_expl_simulation_outputs$year == post_year,]
-  stopifnot(all(grid$read_order == sim_age_i$read_order)) # make sure read_orders line up in grid and simulation
-  sim_out_post_list[[i]] <- data.frame(grid, age = ages[i], year = sim_age_i$year, mean = sim_age_i$mean, cv = sim_age_i$cv, se = sim_age_i$se)
-  names(sim_out_post_list)[i] <- ages[i]
-}
-sim_out_post <- do.call(rbind, sim_out_post_list)
-
-# Ensure spatial alignment between historic and future simulations
-stopifnot(all(sim_out_post$read_order == sim_out_pre$read_order))
-
-# Make final data.frame with locations, ages, historical mean, post forecast
-spatExpl_sim_out <- data.frame(lat = sim_out_pre$lat, 
-                               lon = sim_out_pre$lon, 
-                               easting_m = sim_out_pre$easting_m, 
-                               northing_m = sim_out_pre$northing_m, 
-                               read_order = sim_out_pre$read_order, 
-                               mean_pre = sim_out_pre$mean, 
-                               mean_post = sim_out_post$mean, 
-                               se_pre = sim_out_pre$se, 
-                               se_post = sim_out_post$se, 
-                               cv_pre = sim_out_pre$cv,
-                               cv_post = sim_out_post$cv, 
-                               age = sim_out_post$age)
-spatExpl_sim_out$mean_diff <- spatExpl_sim_out$mean_post - spatExpl_sim_out$mean_pre
-
-# Calculate Pooled SE: sqrt(var1 + var2) -- (assumes forecasts of the two years are independent)
-spatExpl_sim_out$pooled_se <- sqrt(spatExpl_sim_out$se_post^2 + spatExpl_sim_out$se_pre^2)
-
-# Calculate Z-score using Pooled SE
-spatExpl_sim_out$change_zscore <- spatExpl_sim_out$mean_diff / spatExpl_sim_out$pooled_se
-
-# Create a mask for non-significant changes for use in plotting (Alpha = 0.05, Z crit = 1.96) 
-spatExpl_sim_out$mean_is_significant <- abs(spatExpl_sim_out$change_zscore) >= 1.96
-
-
-
-
+# Make calculate map of biomass change from pre_year to post_year including noting regions of significant changes based on pooled SE
 
 make_change_map <- function(grid, spat_expl_simulation_outputs, pre_year, post_year){
  
-  # Create grid 
-  grid <- pred_data[pred_data$year == 2015, c("lat", "lon", "easting_m", "northing_m", "read_order")]
-  
   # Calculate mean pre delta-model forecast map by location/age class using the original row index (read order)
   sim_out_pre_list <- list()
   ages <- unique(spat_expl_simulation_outputs$age)
@@ -213,75 +150,11 @@ make_change_map <- function(grid, spat_expl_simulation_outputs, pre_year, post_y
   return(spatExpl_sim_out)
 }
 
+grid <- pred_data[pred_data$year == 2015, c("lat", "lon", "easting_m", "northing_m", "read_order")]
 
-change_2012_2017 <- make_change_map(grid, spat_expl_simulation_outputs, 2012, 2017)
-change_2017_2019 <- make_change_map(grid, spat_expl_simulation_outputs, 2017, 2019)
 change_2023_2024 <- make_change_map(grid, spat_expl_simulation_outputs, 2023, 2024)
 
 spatExpl_sim_out <- change_2023_2024
-
-
-
-
-######--------------------------------------
-
-
-
-
-
-# 
-# 
-# # Create grid 
-# grid <- pred_data[pred_data$year == 2015, c("lat", "lon", "easting_m", "northing_m", "read_order")]
-# 
-# # Calculate mean 2023 delta-model forecast map by location/age class using the original row index (read order)
-# sim_out_2023_list <- list()
-# ages <- unique(spat_expl_simulation_outputs$age)
-# nages <- length(ages)
-# for(i in 1:nages){
-#   sim_age_i <- spat_expl_simulation_outputs[spat_expl_simulation_outputs$age == ages[i] & spat_expl_simulation_outputs$year == 2023,]
-#   stopifnot(all(grid$read_order == sim_age_i$read_order))  # make sure read_orders line up in grid and simulation
-#   sim_out_2023_list[[i]] <- data.frame(grid, age = ages[i], year = sim_age_i$year, mean = sim_age_i$mean, cv = sim_age_i$cv, se = sim_age_i$se)
-#   names(sim_out_2023_list)[i] <- ages[i]
-# }
-# sim_out_2023 <- do.call(rbind, sim_out_2023_list)
-# 
-# # Calculate 2024 mean delta-model forecast map by location/age class using the original row index (read order)
-# sim_out_2024_list <- list()
-# for(i in 1:nages){
-#   sim_age_i <- spat_expl_simulation_outputs[spat_expl_simulation_outputs$age == ages[i] & spat_expl_simulation_outputs$year == 2024,]
-#   stopifnot(all(grid$read_order == sim_age_i$read_order)) # make sure read_orders line up in grid and simulation
-#   sim_out_2024_list[[i]] <- data.frame(grid, age = ages[i], year = sim_age_i$year, mean = sim_age_i$mean, cv = sim_age_i$cv, se = sim_age_i$se)
-#   names(sim_out_2024_list)[i] <- ages[i]
-# }
-# sim_out_2024 <- do.call(rbind, sim_out_2024_list)
-# 
-# # Ensure spatial alignment between historic and future simulations
-# stopifnot(all(sim_out_2024$read_order == sim_out_2023$read_order))
-#   
-# # Make final data.frame with locations, ages, historical mean, 2024 forecast
-# spatExpl_sim_out <- data.frame(lat = sim_out_2023$lat, 
-#                                lon = sim_out_2023$lon, 
-#                                easting_m = sim_out_2023$easting_m, 
-#                                northing_m = sim_out_2023$northing_m, 
-#                                read_order = sim_out_2023$read_order, 
-#                                mean_2023 = sim_out_2023$mean, 
-#                                mean_2024 = sim_out_2024$mean, 
-#                                se_2023 = sim_out_2023$se, 
-#                                se_2024 = sim_out_2024$se, 
-#                                cv_2023 = sim_out_2023$cv,
-#                                cv_2024 = sim_out_2024$cv, 
-#                                age = sim_out_2024$age)
-# spatExpl_sim_out$mean_diff_24_23 <- spatExpl_sim_out$mean_2024 - spatExpl_sim_out$mean_2023
-# 
-# # Calculate Pooled SE: sqrt(var1 + var2) -- (assumes forecasts of the two years are independent)
-# spatExpl_sim_out$pooled_se <- sqrt(spatExpl_sim_out$se_2024^2 + spatExpl_sim_out$se_2023^2)
-# 
-# # Calculate Z-score using Pooled SE
-# spatExpl_sim_out$change_zscore <- spatExpl_sim_out$mean_diff_24_23 / spatExpl_sim_out$pooled_se
-# 
-# # Create a mask for non-significant changes for use in plotting (Alpha = 0.05, Z crit = 1.96) 
-# spatExpl_sim_out$mean_is_significant <- abs(spatExpl_sim_out$change_zscore) >= 1.96
 
 save(spatExpl_sim_out, file = "./outputs/output_stats/spatExpl_sim_out.RData")
 
