@@ -3,10 +3,13 @@
 .Rproj.user/
 *.pdf
 *.png
+
 /data/raw_large_files/
 review_scripts/
-mm_functions.R/
-hake_functions.R/
+review_scripts/
+mm_functions.R
+hake_functions.R
+
 .Rproj.user
 .httr-oauth
 .DS_Store
