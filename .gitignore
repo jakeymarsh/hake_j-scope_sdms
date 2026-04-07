@@ -1,0 +1,10 @@
+.Rhistory
+.RData
+.Rproj.user/
+*.pdf
+*.png
+/data/raw_large_files/
+.Rproj.user
+.httr-oauth
+.DS_Store
+.quarto
