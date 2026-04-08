@@ -3,6 +3,7 @@
 .Rproj.user/
 *.pdf
 *.png
+._*
 
 /data/raw_large_files/
 mm_functions.R
