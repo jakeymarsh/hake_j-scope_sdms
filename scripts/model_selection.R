@@ -38,41 +38,41 @@ load("./gam/formulas.RData")
 
 # --- Total Biomass ---
 RMSE_js_total_array_7years <- lfo_analysis_bmass_gams(data = hake_js, 
-                                                      target = 'log_wgt_total', 
-                                                      subset = 'wgt_total', 
-                                                      fxn = train_js_bmass_gams, 
-                                                      forms = formulas$bmass.total,
-                                                      nyears = num_years)
+                                              target = 'log_wgt_total', 
+                                              subset = 'wgt_total', 
+                                              fxn = train_js_bmass_gams, 
+                                              forms = formulas$bmass.total,
+                                              nyears = num_years)
 
 save(RMSE_js_total_array_7years, file = './outputs/model_performance/total/RMSE_js_total_array_7years.RData')
 
 # --- Age 2 ---
 RMSE_js_age2_array_7years <- lfo_analysis_bmass_gams(data = hake_js, 
-                                                     target = 'log_age2', 
-                                                     subset = 'age2', 
-                                                     fxn = train_js_bmass_gams, 
-                                                     forms = formulas$bmass.age2, 
-                                                     nyears = num_years)
+                                             target = 'log_age2', 
+                                             subset = 'age2', 
+                                             fxn = train_js_bmass_gams, 
+                                             forms = formulas$bmass.age2, 
+                                             nyears = num_years)
 
 save(RMSE_js_age2_array_7years, file = './outputs/model_performance/age2/RMSE_js_age2_array_7years.RData')
 
 # --- Age 3-4 ---
 RMSE_js_age3_4_array_7years <- lfo_analysis_bmass_gams(data = hake_js, 
-                                                       target = 'log_age3_4', 
-                                                       subset = 'age3_4', 
-                                                       fxn = train_js_bmass_gams, 
-                                                       forms = formulas$bmass.age3_4,
-                                                       nyears = num_years)
+                                               target = 'log_age3_4', 
+                                               subset = 'age3_4', 
+                                               fxn = train_js_bmass_gams, 
+                                               forms = formulas$bmass.age3_4,
+                                               nyears = num_years)
 
 save(RMSE_js_age3_4_array_7years, file = './outputs/model_performance/age3_4/RMSE_js_age3_4_array_7years.RData')
 
 # --- Age 5+ ---
 RMSE_js_age5_20_array_7years <- lfo_analysis_bmass_gams(data = hake_js, 
-                                                        target = 'log_age5_20', 
-                                                        subset = 'age5_20', 
-                                                        fxn = train_js_bmass_gams, 
-                                                        forms = formulas$bmass.age5_20,
-                                                        nyears = num_years)
+                                                target = 'log_age5_20', 
+                                                subset = 'age5_20', 
+                                                fxn = train_js_bmass_gams, 
+                                                forms = formulas$bmass.age5_20,
+                                                nyears = num_years)
 
 save(RMSE_js_age5_20_array_7years, file = './outputs/model_performance/age5_20/RMSE_js_age5_20_array_7years.RData')
 
@@ -85,37 +85,37 @@ save(RMSE_js_age5_20_array_7years, file = './outputs/model_performance/age5_20/R
 
 # --- Total --- 
 AUC_js_total_array_7years <- lfo_analysis_pa_gams(data = hake_js, 
-                                                  target = 'present_total', 
-                                                  fxn = train_js_pa_gams, 
-                                                  forms = formulas$pa.total,
-                                                  nyears = num_years)
+                                            target = 'present_total', 
+                                            fxn = train_js_pa_gams, 
+                                            forms = formulas$pa.total,
+                                            nyears = num_years)
 
 save(AUC_js_total_array_7years, file = './outputs/model_performance/total/AUC_js_total_array_7years.RData')
 
 # --- Age 2 --- 
 AUC_js_age2_array_7years <- lfo_analysis_pa_gams(data = hake_js, 
-                                                 target = 'present_age2', 
-                                                 fxn = train_js_pa_gams, 
-                                                 forms = formulas$pa.age2,
-                                                 nyears = num_years)
+                                           target = 'present_age2', 
+                                           fxn = train_js_pa_gams, 
+                                           forms = formulas$pa.age2,
+                                           nyears = num_years)
 
 save(AUC_js_age2_array_7years, file = './outputs/model_performance/age2/AUC_js_age2_array_7years.RData')
 
 # --- Age 3-4 --- 
 AUC_js_age3_4_array_7years <- lfo_analysis_pa_gams(data = hake_js, 
-                                                   target = 'present_age3_4', 
-                                                   fxn = train_js_pa_gams, 
-                                                   forms = formulas$pa.age3_4,
-                                                   nyears = num_years)
+                                             target = 'present_age3_4', 
+                                             fxn = train_js_pa_gams, 
+                                             forms = formulas$pa.age3_4,
+                                             nyears = num_years)
 
 save(AUC_js_age3_4_array_7years, file = './outputs/model_performance/age3_4/AUC_js_age3_4_array_7years.RData')
 
 # --- Age 5+ --- 
 AUC_js_age5_20_array_7years <- lfo_analysis_pa_gams(data = hake_js, 
-                                                    target = 'present_age5_20', 
-                                                    fxn = train_js_pa_gams, 
-                                                    forms = formulas$pa.age5_20,
-                                                    nyears = num_years)
+                                            target = 'present_age5_20', 
+                                            fxn = train_js_pa_gams, 
+                                            forms = formulas$pa.age5_20,
+                                            nyears = num_years)
 
 save(AUC_js_age5_20_array_7years, file = './outputs/model_performance/age5_20/AUC_js_age5_20_array_7years.RData')
 

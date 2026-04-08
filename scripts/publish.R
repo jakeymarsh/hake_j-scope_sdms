@@ -560,8 +560,8 @@ bmass_train_dat_total <- hake_js[hake_js$wgt_total > 0,]
 
 # --- Shelf distance partial effect ---
 partial_bmass_total_sd <- data.frame(x = bmass_train_dat_total$shelf_distance_m, 
-                                     effect = partial_effects_bmass_total$fit[, "s(shelf_distance_m)"], 
-                                     se = partial_effects_bmass_total$se.fit[, "s(shelf_distance_m)"])
+                         effect = partial_effects_bmass_total$fit[, "s(shelf_distance_m)"], 
+                         se = partial_effects_bmass_total$se.fit[, "s(shelf_distance_m)"])
 
 partial_bmass_total_sd <- partial_bmass_total_sd %>%
   mutate(lower = effect - 1.96 * se,
@@ -680,8 +680,8 @@ partial_effects_pa_total <- predict(best.gams$pa.total, type = "terms", se.fit =
 
 # --- Shelf Distance ---
 partial_pa_total_sd <- data.frame(x = hake_js$shelf_distance_m, 
-                                  effect = partial_effects_pa_total$fit[, "s(shelf_distance_m)"], 
-                                  se = partial_effects_pa_total$se.fit[, "s(shelf_distance_m)"])
+                         effect = partial_effects_pa_total$fit[, "s(shelf_distance_m)"], 
+                         se = partial_effects_pa_total$se.fit[, "s(shelf_distance_m)"])
 partial_pa_total_sd <- partial_pa_total_sd %>%
   mutate(lower = effect - 1.96 * se,
          upper = effect + 1.96 * se)
@@ -703,8 +703,8 @@ ggsave("./outputs/figures/model_partial_effects/total/total_pa_shelf_dist_PE.png
 
 # --- Spatially Stationary T250 Anomaly ---
 partial_pa_total_sst250 <- data.frame(x = hake_js$t250m_Ano_fill, 
-                                      effect = partial_effects_pa_total$fit[, "s(t250m_Ano_fill)"], 
-                                      se = partial_effects_pa_total$se.fit[, "s(t250m_Ano_fill)"])
+                             effect = partial_effects_pa_total$fit[, "s(t250m_Ano_fill)"], 
+                             se = partial_effects_pa_total$se.fit[, "s(t250m_Ano_fill)"])
 partial_pa_total_sst250 <- partial_pa_total_sst250 %>%
   mutate(lower = effect - 1.96 * se,
          upper = effect + 1.96 * se)
@@ -735,8 +735,8 @@ bmass_train_dat_age2 <- hake_js[hake_js$age2 > 0,]
 
 # --- Shelf Distance --- 
 partial_bmass_age2_sd <- data.frame(x = bmass_train_dat_age2$shelf_distance_m, 
-                                    effect = partial_effects_bmass_age2$fit[, "s(shelf_distance_m)"], 
-                                    se = partial_effects_bmass_age2$se.fit[, "s(shelf_distance_m)"])
+                         effect = partial_effects_bmass_age2$fit[, "s(shelf_distance_m)"], 
+                         se = partial_effects_bmass_age2$se.fit[, "s(shelf_distance_m)"])
 partial_bmass_age2_sd <- partial_bmass_age2_sd %>%
   mutate(lower = effect - 1.96 * se,
          upper = effect + 1.96 * se)
@@ -759,8 +759,8 @@ ggsave("./outputs/figures/model_partial_effects/age2/age2_bmass_shelf_dist_PE.pn
 
 # --- Spatially Stationary T250 Anomaly ---
 partial_bmass_age2_t250 <- data.frame(x = bmass_train_dat_age2$t250m_Ano_fill, 
-                                      effect = partial_effects_bmass_age2$fit[, "s(t250m_Ano_fill)"], 
-                                      se = partial_effects_bmass_age2$se.fit[, "s(t250m_Ano_fill)"])
+                           effect = partial_effects_bmass_age2$fit[, "s(t250m_Ano_fill)"], 
+                           se = partial_effects_bmass_age2$se.fit[, "s(t250m_Ano_fill)"])
 partial_bmass_age2_t250 <- partial_bmass_age2_t250 %>%
   mutate(lower = effect - 1.96 * se,
          upper = effect + 1.96 * se)
@@ -788,8 +788,8 @@ partial_effects_pa_age2 <- predict(best.gams$pa.age2, type = "terms", se.fit = T
 
 # --- Shelf Distance ---
 partial_pa_age2_sd <- data.frame(x = hake_js$shelf_distance_m, 
-                                 effect = partial_effects_pa_age2$fit[, "s(shelf_distance_m)"], 
-                                 se = partial_effects_pa_age2$se.fit[, "s(shelf_distance_m)"])
+                         effect = partial_effects_pa_age2$fit[, "s(shelf_distance_m)"], 
+                         se = partial_effects_pa_age2$se.fit[, "s(shelf_distance_m)"])
 partial_pa_age2_sd <- partial_pa_age2_sd %>%
   mutate(lower = effect - 1.96 * se,
          upper = effect + 1.96 * se)
@@ -812,8 +812,8 @@ ggsave("./outputs/figures/model_partial_effects/age2/age2_pa_shelf_dist_PE.png",
 
 # --- Spatially Stationary T250 Anomaly ---
 partial_pa_age2_sst250 <- data.frame(x = hake_js$t250m_Ano_fill, 
-                                     effect = partial_effects_pa_age2$fit[, "s(t250m_Ano_fill)"], 
-                                     se = partial_effects_pa_age2$se.fit[, "s(t250m_Ano_fill)"])
+                           effect = partial_effects_pa_age2$fit[, "s(t250m_Ano_fill)"], 
+                           se = partial_effects_pa_age2$se.fit[, "s(t250m_Ano_fill)"])
 partial_pa_age2_sst250 <- partial_pa_age2_sst250 %>%
   mutate(lower = effect - 1.96 * se,
          upper = effect + 1.96 * se)
@@ -844,8 +844,8 @@ bmass_train_dat_age3_4 <- hake_js[hake_js$age3_4 > 0,]
 
 # --- Shelf Distance --- 
 partial_bmass_age3_4_sd <- data.frame(x = bmass_train_dat_age3_4$shelf_distance_m, 
-                                      effect = partial_effects_bmass_age3_4$fit[, "s(shelf_distance_m)"], 
-                                      se = partial_effects_bmass_age3_4$se.fit[, "s(shelf_distance_m)"])
+                         effect = partial_effects_bmass_age3_4$fit[, "s(shelf_distance_m)"], 
+                         se = partial_effects_bmass_age3_4$se.fit[, "s(shelf_distance_m)"])
 
 partial_bmass_age3_4_sd <- partial_bmass_age3_4_sd %>%
   mutate(lower = effect - 1.96 * se,
@@ -875,8 +875,8 @@ partial_effects_pa_age3_4 <- predict(best.gams$pa.age3_4, type = "terms", se.fit
 
 # --- Shelf Distance --- 
 partial_pa_age3_4_sd <- data.frame(x = hake_js$shelf_distance_m, 
-                                   effect = partial_effects_pa_age3_4$fit[, "s(shelf_distance_m)"], 
-                                   se = partial_effects_pa_age3_4$se.fit[, "s(shelf_distance_m)"])
+                         effect = partial_effects_pa_age3_4$fit[, "s(shelf_distance_m)"], 
+                         se = partial_effects_pa_age3_4$se.fit[, "s(shelf_distance_m)"])
 partial_pa_age3_4_sd <- partial_pa_age3_4_sd %>%
   mutate(lower = effect - 1.96 * se,
          upper = effect + 1.96 * se)
@@ -899,8 +899,8 @@ ggsave("./outputs/figures/model_partial_effects/age3_4/age3_4_pa_shelf_dist_PE.p
 
 # --- Spatially Stationary T250 Anomaly ---
 partial_pa_age3_4_sst250 <- data.frame(x = hake_js$t250m_Ano_fill, 
-                                       effect = partial_effects_pa_age3_4$fit[, "s(t250m_Ano_fill)"], 
-                                       se = partial_effects_pa_age3_4$se.fit[, "s(t250m_Ano_fill)"])
+                           effect = partial_effects_pa_age3_4$fit[, "s(t250m_Ano_fill)"], 
+                           se = partial_effects_pa_age3_4$se.fit[, "s(t250m_Ano_fill)"])
 partial_pa_age3_4_sst250 <- partial_pa_age3_4_sst250 %>%
   mutate(lower = effect - 1.96 * se,
          upper = effect + 1.96 * se)
@@ -931,8 +931,8 @@ bmass_train_dat_age5_20 <- hake_js[hake_js$age5_20 > 0,]
 
 # --- Shelf Distance --- 
 partial_bmass_age5_20_sd <- data.frame(x = bmass_train_dat_age5_20$shelf_distance_m, 
-                                       effect = partial_effects_bmass_age5_20$fit[, "s(shelf_distance_m)"], 
-                                       se = partial_effects_bmass_age5_20$se.fit[, "s(shelf_distance_m)"])
+                         effect = partial_effects_bmass_age5_20$fit[, "s(shelf_distance_m)"], 
+                         se = partial_effects_bmass_age5_20$se.fit[, "s(shelf_distance_m)"])
 partial_bmass_age5_20_sd <- partial_bmass_age5_20_sd %>%
   mutate(lower = effect - 1.96 * se,
          upper = effect + 1.96 * se)
@@ -963,7 +963,7 @@ low.t               <- slope + conf.int
 sig   <- (low.t < 0 & up.t < 0) | (low.t > 0 & up.t > 0)
 
 vc.bmass.age5_20 <- data.frame(slope, conf.int, up.t, low.t, sig,
-                               bmass_train_dat_age5_20[c("lat","lon","easting_m", "northing_m")])
+                             bmass_train_dat_age5_20[c("lat","lon","easting_m", "northing_m")])
 
 a5_20_t250vc <- ggplot(vc.bmass.age5_20[vc.bmass.age5_20$sig, ]) +
   geom_sf(data = namerica_state_utm_df,
@@ -1008,8 +1008,8 @@ partial_effects_pa_age5_20 <- predict(best.gams$pa.age5_20, type = "terms", se.f
 
 # --- Shelf Distance --- 
 partial_pa_age5_20_sd <- data.frame(x = hake_js$shelf_distance_m, 
-                                    effect = partial_effects_pa_age5_20$fit[, "s(shelf_distance_m)"], 
-                                    se = partial_effects_pa_age5_20$se.fit[, "s(shelf_distance_m)"])
+                         effect = partial_effects_pa_age5_20$fit[, "s(shelf_distance_m)"], 
+                         se = partial_effects_pa_age5_20$se.fit[, "s(shelf_distance_m)"])
 partial_pa_age5_20_sd <- partial_pa_age5_20_sd %>%
   mutate(lower = effect - 1.96 * se,
          upper = effect + 1.96 * se)
@@ -1032,8 +1032,8 @@ ggsave("./outputs/figures/model_partial_effects/age5_20/age5_20_pa_shelf_dist_PE
 
 # --- Spatially Stationary T250 Anomaly ---
 partial_pa_age5_20_sst250 <- data.frame(x = hake_js$t250m_Ano_fill, 
-                                        effect = partial_effects_pa_age5_20$fit[, "s(t250m_Ano_fill)"], 
-                                        se = partial_effects_pa_age5_20$se.fit[, "s(t250m_Ano_fill)"])
+                           effect = partial_effects_pa_age5_20$fit[, "s(t250m_Ano_fill)"], 
+                           se = partial_effects_pa_age5_20$se.fit[, "s(t250m_Ano_fill)"])
 partial_pa_age5_20_sst250 <- partial_pa_age5_20_sst250 %>%
   mutate(lower = effect - 1.96 * se,
          upper = effect + 1.96 * se)
@@ -1094,34 +1094,34 @@ o1 <-  ggplot(spatExpl_sim_out) +
 ggsave('./outputs/figures/forecasts/mean_pred_2024.png', o1,
        width = 4.5, height = 3, units = "in", bg = "white")
 
-
+  
 # 8.2: Forecast Uncertainty (CV) -----------------------------------------------
 # The Coefficient of Variation (CV) identifies the precision of 
 # our Monte Carlo simulations across the study area with respect to the prediction magnitude (CV = SE/Mean)
 o2 <- ggplot(spatExpl_sim_out) +
-  geom_sf(data = namerica_state_utm_df,
-          fill = "grey90", color = "grey10", size = 0.2) +
-  geom_point(aes(x = easting_m, y = northing_m, color = cv_post), shape = 15, size = 0.06) +
-  geom_sf(data = bath_200_utm_df, fill = NA, color = "grey90", size = 0.2) +
-  facet_wrap(~ age, nrow = 1) +
-  labs(x = "Longitude",
-       y = "Latitude",
-       color = 'SE',
-       title = paste0('CV of hake biomass prediction simulations for August 2024')) +
-  scale_x_continuous(breaks = c(-127, -125), limits = c(xmin, xmax)) +
-  ylim(ymin, ymax) +
-  scale_color_viridis(limits = cv_lims, oob = scales::squish) +
-  theme_simple(base_size = 9, grid = TRUE) +
-  theme(panel.spacing.x = unit(-0.5, "pt"),
-        panel.spacing = unit(1, "lines"),
-        legend.justification = c(0, 0),
-        legend.position = c(0.01, 0.005),
-        legend.title.align = 0.5,
-        legend.key.size = unit(0.4, "cm"),
-        legend.background = element_blank(),
-        legend.text = element_text(size = 6),
-        legend.title = element_text(size = 6),
-        panel.grid.major = element_line(size = 0.2))
+         geom_sf(data = namerica_state_utm_df,
+            fill = "grey90", color = "grey10", size = 0.2) +
+         geom_point(aes(x = easting_m, y = northing_m, color = cv_post), shape = 15, size = 0.06) +
+         geom_sf(data = bath_200_utm_df, fill = NA, color = "grey90", size = 0.2) +
+         facet_wrap(~ age, nrow = 1) +
+         labs(x = "Longitude",
+              y = "Latitude",
+              color = 'SE',
+              title = paste0('CV of hake biomass prediction simulations for August 2024')) +
+         scale_x_continuous(breaks = c(-127, -125), limits = c(xmin, xmax)) +
+         ylim(ymin, ymax) +
+         scale_color_viridis(limits = cv_lims, oob = scales::squish) +
+         theme_simple(base_size = 9, grid = TRUE) +
+         theme(panel.spacing.x = unit(-0.5, "pt"),
+              panel.spacing = unit(1, "lines"),
+              legend.justification = c(0, 0),
+              legend.position = c(0.01, 0.005),
+              legend.title.align = 0.5,
+              legend.key.size = unit(0.4, "cm"),
+              legend.background = element_blank(),
+              legend.text = element_text(size = 6),
+              legend.title = element_text(size = 6),
+              panel.grid.major = element_line(size = 0.2))
 
 ggsave('./outputs/figures/forecasts/CV_2024.png', o2,
        width = 5.5, height = 3, units = "in", bg = "white")
