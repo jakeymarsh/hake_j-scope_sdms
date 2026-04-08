@@ -8,7 +8,13 @@
 mm_functions.R
 hake_functions.R
 
+# Manuscript drafts and figures
+Final_Figures.svg
+Marshall et al. In prep_IK (1).docx
+Review_JMarshall2025_Hake.docx
+
 .Rproj.user
 .httr-oauth
 .DS_Store
 .quarto
+
