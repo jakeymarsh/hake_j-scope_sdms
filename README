@@ -1,0 +1,7 @@
+# Pacific Hake J-SCOPE SDMs
+This repository contains the data and code for analyzing spatial biomass shifts in Pacific hake using J-SCOPE oceanographic forecasts.
+
+## Project Structure
+- `scripts/`: Main analysis and simulation pipelines.
+- `gam/`: Model formulas and selection scripts.
+- `data/`: Environmental and hake density data (Note: Large files are ignored).
