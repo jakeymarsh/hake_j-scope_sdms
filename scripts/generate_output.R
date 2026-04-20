@@ -204,7 +204,7 @@ save(region_diff, file = './outputs/output_stats/region_diff.RData')
 # 5. Regional Survey Data Analysis
 # ----------------------------------------------------------------------------
 
-# Calculate hake biomass in US and Canada
+# Calculate observed hake biomass in US and Canada
 ages <- factor(c("Total", "Age 2", "Age 3-4", "Age 5+"), ordered = T)
 hake_wgt_obs <- hake_js[ , c("lat", "lon", "year", "wgt_total", "age2", "age3_4", "age5_20")]
 hake_obs_reg_list <- list()
@@ -232,32 +232,6 @@ for(i in 1:nyears){
 }
 hake_obs_reg <- bind_rows(hake_obs_reg_list)
 save(hake_obs_reg, file = "./outputs/output_stats/hake_obs_reg.RData")
-
-
-
-# Calculate total biomass in US and CAN, as observed on hake surveys
-years <- unique(hake_obs_reg$year)
-ages <- unique(hake_obs_reg$age)
-count <- 1
-hake_obs_reg_diff_list <- list()
-for(i in 1:length(years)){
-  for(j in 1:length(ages)){
-    wgts_i <- hake_obs_reg$wgts[hake_obs_reg$year == years[i] & hake_obs_reg$age == ages[j]]
-    hake_obs_reg_diff_list[[count]] <- data.frame(diff = -diff(wgts_i),
-                                          sum = sum(wgts_i),
-                                          ratio_US = -diff(wgts_i) / sum(wgts_i),
-                                          year = years[i],
-                                          age = ages[j])
-    count <- count+1
-  }
-}
-hake_obs_reg_diff_list[[count]] <- data.frame(diff = rep(NA, 4),
-                                      sum = rep(NA, 4),
-                                      ratio_US = rep(NA, 4),
-                                      year = 2024,
-                                      age = ages)
-hake_obs_reg_diff <- bind_rows(hake_obs_reg_diff_list)
-save(hake_obs_reg_diff, file = './outputs/output_stats/hake_obs_reg_diff.RData')
 
 
 # end of script
