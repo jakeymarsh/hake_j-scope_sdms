@@ -46,7 +46,6 @@ load('./outputs/output_stats/spatExpl_sim_out.RData')
 load('./outputs/output_stats/regional_sim_out.RData')
 load('./outputs/output_stats/region_diff.RData')
 load('./outputs/output_stats/hake_obs_reg.RData')
-load('./outputs/output_stats/hake_obs_reg_diff.RData')
 load('./outputs/output_stats/hist_fut_temp.RData')
 
 # 1.6 Best Models & Baseline Survey Data
