@@ -31,7 +31,7 @@ source("./scripts/functions.R", echo = FALSE)
 source("./scripts/load.R", echo = FALSE)
 
 # Module 2: Model Definition
-# Generates 40 candidate GAM formulas across four life-history stages.
+# Generates candidate GAM formulas for density and occurrence models across four life-history stages.
 cat("Step 2: Defining candidate GAM formulas...\n") 
 source("./scripts/make_model_formulas.R", echo = FALSE)
 

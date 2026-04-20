@@ -1221,6 +1221,10 @@ age2_ageclass_maps <- plot_ageclass_maps(data = spatExpl_sim_out,
 ggsave('./outputs/figures/forecasts/age_class_maps/age2_ageclass_maps.png', age2_ageclass_maps,
        width = 5.7, height = 2.8, units = "in", bg = "white")
 
+ggsave('C:/Users/jakem/Downloads/test.png', age2_ageclass_maps,
+       width = 5.7, height = 2.8, units = "in", bg = "white")
+
+
 # --- Age 3-4 Hake Profile ---
 age3_4_ageclass_maps <- plot_ageclass_maps(data = spatExpl_sim_out, 
                                            mean_lims = c(0,50),
