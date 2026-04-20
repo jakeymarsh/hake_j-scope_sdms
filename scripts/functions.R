@@ -700,8 +700,8 @@ plot_ageclass_maps <- function(data, mean_lims, se_lims, change_lims, age_group)
       grid_df <- data[data$age == age_group, ]
       
       # 2. Round coordinates to create the 15km bins
-      grid_df$east_grid <- round(grid_df$easting_m / 15000) * 15000
-      grid_df$north_grid <- round(grid_df$northing_m / 15000) * 15000
+      grid_df$east_grid <- round(grid_df$easting_m / 5000) * 5000
+      grid_df$north_grid <- round(grid_df$northing_m / 5000) * 5000
       
       # 3. Group by the grid bins and calculate the ratio of significance
       grid_summary <- grid_df %>%
@@ -712,10 +712,11 @@ plot_ageclass_maps <- function(data, mean_lims, se_lims, change_lims, age_group)
       grid_summary
     },
     aes(x = east_grid, y = north_grid),
-    shape = 3,      
-    size = 0.2, 
-    color = "black", 
-    alpha = 0.4) +
+    shape = 3,          # Back to the vertical plus sign
+    size = 0.3,         # Dropped from 0.5 to make them less crowded
+    stroke = 0.1,      # Dropped from 0.3: thin enough to be "fine," thick enough to see
+    color = "black",  
+    alpha = 0.8) +      # Dropped from 0.5: lets the biomass colors breathe more
     
     geom_sf(data = bath_200_utm_df, fill = NA, color = "black", size = 0.2) +  
     geom_sf(data = namerica_state_utm_df, fill = "grey90", color = "grey10", size = 0.2) +

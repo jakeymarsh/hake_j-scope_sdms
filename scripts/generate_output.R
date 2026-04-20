@@ -173,8 +173,8 @@ regional_simulation_outputs <- do.call(rbind, regional_simulation_outputs_list)
 regional_sim_out <- bind_rows(regional_simulation_outputs)
 
 # Find 95% confidence intervals
-regional_sim_out$lower <- regional_sim_out$mean - 1.96 * regional_sim_out$se
-regional_sim_out$upper <- regional_sim_out$mean + 1.96 * regional_sim_out$se
+regional_sim_out$lower_reg <- regional_sim_out$mean_reg - 1.96 * regional_sim_out$se_reg
+regional_sim_out$upper_reg <- regional_sim_out$mean_reg + 1.96 * regional_sim_out$se_reg
 regional_sim_out$age <- factor(regional_sim_out$age, levels = c( "Total", "Age 2", "Age 3-4", "Age 5+"))
 save(regional_sim_out, file = './outputs/output_stats/regional_sim_out.RData')
 
@@ -187,7 +187,7 @@ count <- 1
 diffs <- list()
 for(i in 1:length(years)){
   for(j in 1:length(ages)){
-    means_i <- regional_sim_out$mean[regional_sim_out$year == years[i] & regional_sim_out$age == ages[j]]
+    means_i <- regional_sim_out$mean_reg[regional_sim_out$year == years[i] & regional_sim_out$age == ages[j]]
     diffs[[count]] <- data.frame(diff = -diff(means_i),
                                  sum = sum(means_i),
                                  ratio_US = -diff(means_i) / sum(means_i),
@@ -203,6 +203,37 @@ save(region_diff, file = './outputs/output_stats/region_diff.RData')
 # ----------------------------------------------------------------------------
 # 5. Regional Survey Data Analysis
 # ----------------------------------------------------------------------------
+
+# Calculate hake biomass in US and Canada
+ages <- factor(c("Total", "Age 2", "Age 3-4", "Age 5+"), ordered = T)
+hake_wgt_obs <- hake_js[ , c("lat", "lon", "year", "wgt_total", "age2", "age3_4", "age5_20")]
+hake_obs_reg_list <- list()
+for(i in 1:nyears){
+  
+  # Index for hake in current year
+  hake_i <- hake_wgt_obs[hake_wgt_obs$year == years[i],]
+  
+  # Select hake points in US and CAN
+  in_US <- in.chull(hake_i$lon, hake_i$lat, border_chull$lon, border_chull$lat)
+  
+  # Sum age group biomass in each nation's waters
+  sums_US <- colSums(hake_i[in_US, c("wgt_total", "age2", "age3_4", "age5_20")])
+  sums_CAN <- colSums(hake_i[!in_US, c("wgt_total", "age2", "age3_4", "age5_20")])
+  
+  if(i == nyears){
+    sums_US <- rep(NA, 4)
+    sums_CAN <- rep(NA, 4)
+  }
+  
+  hake_obs_reg_list[[i]] <- data.frame(region = c(rep("US", 4), rep("CAN", 4)),
+                                       age = rep(ages, 2),
+                                       year = rep(years[i], 8),
+                                       wgts = c(sums_US, sums_CAN))
+}
+hake_obs_reg <- bind_rows(hake_obs_reg_list)
+save(hake_obs_reg, file = "./outputs/output_stats/hake_obs_reg.RData")
+
+
 
 # Calculate total biomass in US and CAN, as observed on hake surveys
 years <- unique(hake_obs_reg$year)
