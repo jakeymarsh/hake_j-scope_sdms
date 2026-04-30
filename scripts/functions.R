@@ -449,7 +449,7 @@ lfo_monte_carlo_sim <- function(train_data = hake_js,
   
   # Set temporal boundaries for training and prediction in LFO analysis
   start_train_ind <- which(unique(pred_data$year) == start_train)
-  years <- unique(pred_data$year)[start_train_ind:length(unique(pred_data$year))]
+  years <- sort(unique(pred_data$year)[start_train_ind:length(unique(pred_data$year))])
   nyears <- length(years)
   
   # make lists to store regional and spat expl output
@@ -513,9 +513,9 @@ lfo_monte_carlo_sim <- function(train_data = hake_js,
     # 3. Find how biomass sums vary across simulations
     mean_reg <- c(mean(US_sums), mean(CAN_sums))
     se_reg <- c(sd(US_sums), sd(CAN_sums))
-    cv_reg <- sd_reg/mean_reg
+    cv_reg <- se_reg/mean_reg
     region <- c('US', 'CAN')
-    out_reg_list[[i]] <- data.frame(mean_reg, sd_reg, se_reg, cv_reg, region, year = years[i])
+    out_reg_list[[i]] <- data.frame(mean_reg, se_reg, cv_reg, region, year = years[i])
   }
   
   out_spat_expl <- do.call(rbind, out_spat_expl_list)
@@ -700,8 +700,8 @@ plot_ageclass_maps <- function(data, mean_lims, se_lims, change_lims, age_group)
       grid_df <- data[data$age == age_group, ]
       
       # 2. Round coordinates to create the 15km bins
-      grid_df$east_grid <- round(grid_df$easting_m / 5000) * 5000
-      grid_df$north_grid <- round(grid_df$northing_m / 5000) * 5000
+      grid_df$east_grid <- round(grid_df$easting_m / 10000) * 10000
+      grid_df$north_grid <- round(grid_df$northing_m / 10000) * 10000
       
       # 3. Group by the grid bins and calculate the ratio of significance
       grid_summary <- grid_df %>%
@@ -713,8 +713,8 @@ plot_ageclass_maps <- function(data, mean_lims, se_lims, change_lims, age_group)
     },
     aes(x = east_grid, y = north_grid),
     shape = 3,          # Back to the vertical plus sign
-    size = 0.3,         # Dropped from 0.5 to make them less crowded
-    stroke = 0.1,      # Dropped from 0.3: thin enough to be "fine," thick enough to see
+    size = 0.5,         # Dropped from 0.5 to make them less crowded
+    stroke = 0.2,      # Dropped from 0.3: thin enough to be "fine," thick enough to see
     color = "black",  
     alpha = 0.8) +      # Dropped from 0.5: lets the biomass colors breathe more
     
