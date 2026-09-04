@@ -553,12 +553,13 @@ plot_heatmap <- function(data, years, age = 'total', names,
       geom_tile() +
       geom_text(aes(label = round(value, 3)), size = 3.5) +
       scale_fill_gradientn(colours = rev(heat.colors(20)),  
-                           name = expression(paste('RMSE of\nlog'[e], '(B)')), 
+                           name = expression(atop('RMSE of', paste('log'[e], '(B)'))),
                            limits = lims, 
                            oob = scales::squish) +
       scale_x_discrete(labels = years) +  
       scale_y_discrete(labels = names)  +    
-      theme(axis.text.x=element_text(size=10),
+      theme(text = element_text(family = "serif"),
+            axis.text.x=element_text(size=10),
             axis.text.y=element_text(size=10),
             axis.title.x=element_text(size=12),
             axis.title.y=element_text(size=12),
@@ -576,7 +577,8 @@ plot_heatmap <- function(data, years, age = 'total', names,
                            oob = scales::squish) +
       scale_x_discrete(labels = years) +  # Customize X-axis labels
       scale_y_discrete(labels = names) +  # Customize Y-axis labels
-      theme(axis.text.x=element_text(size=10),
+      theme(text = element_text(family = "serif"),
+            axis.text.x=element_text(size=10),
             axis.text.y=element_text(size=10),
             axis.title.x=element_text(size=12),
             axis.title.y=element_text(size=12),
@@ -614,7 +616,8 @@ plot_hist_years_delta <- function(data, delta_lims, years, age){
       ylim(ymin, ymax) +
       scale_color_viridis(limits = delta_lims, oob = scales::squish) +
       theme_simple(base_size = 8, grid = TRUE) +
-      theme(plot.title = element_text(hjust = 0.5),
+      theme(text = element_text(family = "serif"),
+            plot.title = element_text(hjust = 0.5),
             panel.spacing.x = unit(-0.5, "pt"),
             panel.spacing = unit(1, "lines"),
             legend.justification = c(0, 0),
@@ -653,7 +656,8 @@ plot_ageclass_maps <- function(data, mean_lims, se_lims, change_lims, age_group)
     ylim(ymin, ymax) +
     scale_color_viridis(limits = mean_lims, oob = scales::squish) +
     theme_simple(base_size = 8, grid = TRUE) +
-    theme(plot.title = element_text(hjust = 0.5),
+    theme(text = element_text(family = "serif"),
+          plot.title = element_text(hjust = 0.5),
           panel.spacing.x = unit(-0.5, "pt"),
           panel.spacing = unit(1, "lines"),
           legend.justification = c(0, 0),
@@ -677,7 +681,8 @@ plot_ageclass_maps <- function(data, mean_lims, se_lims, change_lims, age_group)
     ylim(ymin, ymax) +
     scale_color_viridis(limits = se_lims, oob = scales::squish) +
     theme_simple(base_size = 8, grid = TRUE) +
-    theme(plot.title = element_text(hjust = 0.5),
+    theme(text = element_text(family = "serif"),
+          plot.title = element_text(hjust = 0.5),
           panel.spacing.x = unit(-0.5, "pt"),
           panel.spacing = unit(1, "lines"),
           legend.justification = c(0, 0),
@@ -699,7 +704,7 @@ plot_ageclass_maps <- function(data, mean_lims, se_lims, change_lims, age_group)
       # 1. Take all points for this age group (not just significant ones)
       grid_df <- data[data$age == age_group, ]
       
-      # 2. Round coordinates to create the 15km bins
+      # 2. Round coordinates to create the 10km bins
       grid_df$east_grid <- round(grid_df$easting_m / 10000) * 10000
       grid_df$north_grid <- round(grid_df$northing_m / 10000) * 10000
       
@@ -736,7 +741,8 @@ plot_ageclass_maps <- function(data, mean_lims, se_lims, change_lims, age_group)
                           midpoint = 0,
                           oob = scales::squish) +    
     theme_simple(base_size = 8, grid = TRUE) +
-    theme(plot.title = element_text(hjust = 0.5),
+    theme(text = element_text(family = "serif"),
+          plot.title = element_text(hjust = 0.5),
           panel.spacing.x = unit(-0.5, "pt"),
           panel.spacing = unit(1, "lines"),
           legend.justification = c(0, 0),
@@ -774,7 +780,8 @@ theme_simple <- function(base_size = 11,
   }
   
   x <- theme_light(base_size = base_size, base_family = base_family) +
-    theme(plot.background = element_rect(fill = bg, colour = NA),
+    theme(text = element_text(family = "serif"),
+          plot.background = element_rect(fill = bg, colour = NA),
           panel.background = element_rect(fill = bg, colour = NA),
           panel.grid.major = element_blank(),
           panel.grid.minor = element_blank(),
