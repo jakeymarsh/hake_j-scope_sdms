@@ -90,6 +90,13 @@ spat_expl_simulation_outputs_list[[3]] <- data.frame(age3_4_sim_region[["out_spa
 spat_expl_simulation_outputs_list[[4]] <- data.frame(age5_20_sim_region[["out_spat_expl"]], age = 'Age 5+')
 spat_expl_simulation_outputs <- do.call(rbind, spat_expl_simulation_outputs_list)
 spat_expl_simulation_outputs$age <- factor(spat_expl_simulation_outputs$age, levels = c("Total", "Age 2", "Age 3-4", "Age 5+"))
+
+
+
+spat_expl_simulation_outputs <- merge(spat_expl_simulation_outputs, grid, by = "read_order")
+
+
+
 save(spat_expl_simulation_outputs, file = './outputs/output_stats/spat_expl_simulation_outputs.RData')
 
 
