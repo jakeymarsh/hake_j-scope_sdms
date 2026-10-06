@@ -350,22 +350,22 @@ rmse_bmass_gams <- function(gam_list, prediction_data, target = 'log_wgt_total')
   return(rmse_all)
 }
 
-
-auc_pa_gams <- function(gam_list, prediction_data = data_next, target = 'present_total'){
-  
-  auc <- double(length(gam_list))
-  for(i in 1:length(gam_list)){
-    
-    # Predict presence under future year
-    pred_i <- predict(gam_list[[j]], prediction_data, type = 'response', exclude = "s(year_fac)")
-    
-    # Find AUC metric
-    roc_curve <- roc(prediction_data[[target]], pred_j)
-    auc_i <- auc(roc_curve)
-    
-    auc[j] <- auc_i
-  }
-}
+# 
+# auc_pa_gams <- function(gam_list, prediction_data = data_next, target = 'present_total'){
+#   
+#   auc <- double(length(gam_list))
+#   for(i in 1:length(gam_list)){
+#     
+#     # Predict presence under future year
+#     pred_i <- predict(gam_list[[i]], prediction_data, type = 'response', exclude = "s(year_fac)")
+#     
+#     # Find AUC metric
+#     roc_curve <- roc(prediction_data[[target]], pred_i)
+#     auc_i <- auc(roc_curve)
+#     
+#     auc[j] <- auc_i
+#   }
+# }
 
 
 rmse <- function(true_vec, predicted_vec){
@@ -381,46 +381,196 @@ rmse <- function(true_vec, predicted_vec){
 # Simulation and Output
 # --------------------------------------------------------------------------
 
+sim_delta_ntimes <- function(gam_bmass, gam_pa, pred_data, n = 5000) {
 
-sim_delta_ntimes <- function(gam_bmass, gam_pa, pred_data, n = 5000){
-  ###############################
-  ## Makes n simulations of delta output given the biomass and presence gams provided.
-  ## Returns array with columns containing full prediction sets for a given simulation and 
-  ## rows containing all simulated values for a given location
-  ## Variables:
-  ## gam_bmass is the biomass gam to be used in the simulation
-  ## gam_pa is the presence gam to be used in the simulation
-  ## pred_data is the prediction dataset used to make the model output
-  ## n is the number of output simulations to be created in this function
-  
-  # Gaussian model simulation
-  ###########################################################################################
-  # Make predictions on pred_data set
-  # Simulate n gaussian output prediction sets using the fit and se.fit
-  # - simulating n sets of predictions appends each set in sequence to sim_gauss - tested
-  # restructure into array - rows are each point, columns are sets of predictions - tested
-  # transform back to normal space using Eric Ward's suggested bias correction
-  pred_gauss_with_se <- predict(gam_bmass, newdata = pred_data, type = "link", exclude = "s(year_fac)", se.fit = T)
-  pred_gauss_draws <- rnorm(length(pred_gauss_with_se$fit) * n, pred_gauss_with_se$fit, pred_gauss_with_se$se.fit) # randomly selects one value from prob dist of each prediction point based on the given fit (mean) and se
-  sim_gauss_array <- array(pred_gauss_draws, dim = c(nrow(pred_data), n))
-  sim_gauss <- exp(sim_gauss_array + c((pred_gauss_with_se$se.fit^2)/2)) # bias correction
-  
-  # Binomial model simulation
-  ###########################################################################################
-  # Make predictions on pred_data set
-  # Simulate n binomial output prediction sets using fit and se.fit
-  # restructure just like above section
-  # transform binomial to probability space
-  pred_binomial_with_se <- predict(gam_pa, newdata = pred_data, type = "link", exclude = "s(year_fac)", se.fit = T)
-  pred_binom_draws <- rnorm(length(pred_binomial_with_se$fit) * n, pred_binomial_with_se$fit, pred_binomial_with_se$se.fit)
-  sim_binom_array <- array(pred_binom_draws, dim = c(nrow(pred_data), n))
-  sim_binomial <- plogis(sim_binom_array)
-  
-  # Combine predictions
+  # 1. Prediction design matrices (lpmatrix)
+  Xp_bmass <- predict(gam_bmass, newdata = pred_data, type = "lpmatrix")
+  Xp_pa    <- predict(gam_pa, newdata = pred_data, type = "lpmatrix")
+
+  # Zero out s(year_fac) columns to replicate exclude = "s(year_fac)"
+  bmass_yr_cols <- grep("s\\(year_fac\\)", colnames(Xp_bmass))
+  if (length(bmass_yr_cols) > 0) Xp_bmass[, bmass_yr_cols] <- 0
+
+  pa_yr_cols <- grep("s\\(year_fac\\)", colnames(Xp_pa))
+  if (length(pa_yr_cols) > 0) Xp_pa[, pa_yr_cols] <- 0
+
+  # 2. Bayesian covariance matrices of model parameters
+  # unconditional = TRUE incorporates uncertainty from smoothing parameter estimation
+  V_bmass <- vcov(gam_bmass, unconditional = TRUE)
+  V_pa    <- vcov(gam_pa, unconditional = TRUE)
+
+  # 3. Multivariate normal draws of coefficients
+  sim_beta_bmass <- MASS::mvrnorm(n = n, mu = coef(gam_bmass), Sigma = V_bmass) # [n x p_bmass]
+  sim_beta_pa    <- MASS::mvrnorm(n = n, mu = coef(gam_pa), Sigma = V_pa)       # [n x p_pa]
+
+  # 4. Project to linear predictor space: [n_cells x n]
+  eta_bmass <- Xp_bmass %*% t(sim_beta_bmass)
+  eta_pa    <- Xp_pa %*% t(sim_beta_pa)
+
+  # 5. Transform to response scale
+  # Lognormal bias correction using estimated residual variance (gam_bmass$sig2)
+  sim_gauss <- exp(eta_bmass + (gam_bmass$sig2 / 2))
+
+  # Binomial logit link to probability
+  sim_binomial <- plogis(eta_pa)
+
+  # 6. Combined delta output: [n_cells x n]
   combined_sim_pred <- sim_gauss * sim_binomial
-  
   return(combined_sim_pred)
 }
+# 
+# 
+# # test
+# 
+# 
+# 
+# # 1. Old independent draws (replicated for 500 sims)
+# n_check <- 500
+# pred_b_se <- predict(test_gam_bmass, newdata = test_pred, type = "link", exclude = "s(year_fac)", se.fit = TRUE)
+# pred_p_se <- predict(test_gam_pa, newdata = test_pred, type = "link", exclude = "s(year_fac)", se.fit = TRUE)
+# 
+# old_b <- array(rnorm(nrow(test_pred) * n_check, pred_b_se$fit, pred_b_se$se.fit), dim = c(nrow(test_pred), n_check))
+# old_p <- array(rnorm(nrow(test_pred) * n_check, pred_p_se$fit, pred_p_se$se.fit), dim = c(nrow(test_pred), n_check))
+# old_sims <- exp(old_b + (test_gam_bmass$sig2 / 2)) * plogis(old_p)
+# 
+# # 2. New MVN draws (from sim_delta_ntimes)
+# new_sims <- sim_delta_ntimes(test_gam_bmass, test_gam_pa, test_pred, n = n_check)
+# 
+# # 3. Sum across all cells (total domain biomass)
+# total_old <- colSums(old_sims)
+# total_new <- colSums(new_sims)
+# 
+# # Compare the standard deviations (the true uncertainty of regional biomass)
+# cat(sprintf("Old Regional SE: %.2f\n", sd(total_old)))
+# cat(sprintf("New MVN Regional SE: %.2f\n", sd(total_new)))
+# cat(sprintf("Ratio (New / Old): %.2fx wider uncertainty bounds\n", sd(total_new) / sd(total_old)))
+# 
+# 
+# 
+# # ==============================================================================
+# # 1. SETUP TEST ENVIRONMENT
+# # ==============================================================================
+# library(MASS)
+# library(mgcv)
+# library(ggplot2)
+# 
+# load('./gam/best.formulas.RData')
+# 
+# 
+# # Pick one year of prediction data and fit a quick test model pair
+# test_year <- 2015
+# test_pred <- temp_js[temp_js$year == test_year, ]
+# test_train <- hake_js[hake_js$year < test_year, ]
+# 
+# # Fit test models (or use pre-existing gam_bmass and gam_pa if already in memory)
+# test_gam_bmass <- gam(best.formulas$bmass.total, 
+#                       data = test_train[test_train$wgt_total > 0, ], 
+#                       family = gaussian(), 
+#                       method = "REML")
+# 
+# test_gam_pa <- gam(best.formulas$pa.total, 
+#                    data = test_train, 
+#                    family = binomial(), 
+#                    method = "REML")
+# 
+# # ==============================================================================
+# # 2. RUN A TEST BATCH (n = 100 is plenty for testing)
+# # ==============================================================================
+# n_test <- 100
+# sim_mvn <- sim_delta_ntimes(
+#   gam_bmass = test_gam_bmass,
+#   gam_pa = test_gam_pa,
+#   pred_data = test_pred,
+#   n = n_test
+# )
+# 
+# # ==============================================================================
+# # 3. UNIT CHECKS: Dimensions, NAs, and Range
+# # ==============================================================================
+# cat("--- CHECK 1: Dimensions ---\n")
+# stopifnot(nrow(sim_mvn) == nrow(test_pred))
+# stopifnot(ncol(sim_mvn) == n_test)
+# cat("PASSED: Matrix dimensions match grid cells x simulations.\n\n")
+# 
+# cat("--- CHECK 2: Numerical Validity ---\n")
+# stopifnot(!any(is.na(sim_mvn)))
+# stopifnot(!any(is.infinite(sim_mvn)))
+# stopifnot(all(sim_mvn >= 0)) # Biomass density cannot be negative
+# cat("PASSED: No NAs, Inf values, or negative densities.\n\n")
+# 
+# cat("--- CHECK 3: Mean Surface Consistency ---\n")
+# # The average across simulation iterations should closely track mgcv's native predict()
+# pred_mean_manual <- rowMeans(sim_mvn)
+# 
+# # Compare to standard predict() with exclude
+# p_pa <- predict(test_gam_pa, newdata = test_pred, type = "response", exclude = "s(year_fac)")
+# p_bmass <- exp(predict(test_gam_bmass, newdata = test_pred, type = "link", exclude = "s(year_fac)") + (test_gam_bmass$sig2 / 2))
+# pred_expected <- p_pa * p_bmass
+# 
+# mean_corr <- cor(pred_mean_manual, pred_expected)
+# cat(sprintf("Correlation between simulated mean and standard predict(): %.4f\n", mean_corr))
+# stopifnot(mean_corr > 0.98)
+# cat("PASSED: Simulated means align with fitted model expectation.\n\n")
+# 
+# # ==============================================================================
+# # 4. VISUAL SMOKE TEST: Checkerboard vs Smooth Field
+# # ==============================================================================
+# # Plot the 1st simulation iteration to visually confirm smooth spatial gradients
+# test_df <- test_pred
+# test_df$sim_run_1 <- sim_mvn[, 1]
+# 
+# ggplot(test_df, aes(x = lon, y = lat, color = sim_run_1)) +
+#   geom_point(size = 1) +
+#   scale_color_viridis_c(trans = "log1p") +
+#   theme_minimal() +
+#   labs(
+#     title = "Single Realization Surface (Iteration 1)",
+#     subtitle = "Verify this looks like smooth spatial fields, NOT TV static / checkerboards",
+#     color = "Density"
+#   )
+# 
+# 
+# 
+# 
+# sim_delta_ntimes <- function(gam_bmass, gam_pa, pred_data, n = 5000){
+#   ###############################
+#   ## Makes n simulations of delta output given the biomass and presence gams provided.
+#   ## Returns array with columns containing full prediction sets for a given simulation and
+#   ## rows containing all simulated values for a given location
+#   ## Variables:
+#   ## gam_bmass is the biomass gam to be used in the simulation
+#   ## gam_pa is the presence gam to be used in the simulation
+#   ## pred_data is the prediction dataset used to make the model output
+#   ## n is the number of output simulations to be created in this function
+# 
+#   # Gaussian model simulation
+#   ###########################################################################################
+#   # Make predictions on pred_data set
+#   # Simulate n gaussian output prediction sets using the fit and se.fit
+#   # - simulating n sets of predictions appends each set in sequence to sim_gauss - tested
+#   # restructure into array - rows are each point, columns are sets of predictions - tested
+#   # transform back to normal space using Eric Ward's suggested bias correction
+#   pred_gauss_with_se <- predict(gam_bmass, newdata = pred_data, type = "link", exclude = "s(year_fac)", se.fit = T)
+#   pred_gauss_draws <- rnorm(length(pred_gauss_with_se$fit) * n, pred_gauss_with_se$fit, pred_gauss_with_se$se.fit) # randomly selects one value from prob dist of each prediction point based on the given fit (mean) and se
+#   sim_gauss_array <- array(pred_gauss_draws, dim = c(nrow(pred_data), n))
+#   sim_gauss <- exp(sim_gauss_array + c((pred_gauss_with_se$se.fit^2)/2)) # bias correction
+# 
+#   # Binomial model simulation
+#   ###########################################################################################
+#   # Make predictions on pred_data set
+#   # Simulate n binomial output prediction sets using fit and se.fit
+#   # restructure just like above section
+#   # transform binomial to probability space
+#   pred_binomial_with_se <- predict(gam_pa, newdata = pred_data, type = "link", exclude = "s(year_fac)", se.fit = T)
+#   pred_binom_draws <- rnorm(length(pred_binomial_with_se$fit) * n, pred_binomial_with_se$fit, pred_binomial_with_se$se.fit)
+#   sim_binom_array <- array(pred_binom_draws, dim = c(nrow(pred_data), n))
+#   sim_binomial <- plogis(sim_binom_array)
+# 
+#   # Combine predictions
+#   combined_sim_pred <- sim_gauss * sim_binomial
+# 
+#   return(combined_sim_pred)
+# }
 
 
 
@@ -642,8 +792,6 @@ plot_ageclass_maps <- function(data, mean_lims, se_lims, change_lims, age_group)
   #############################
   ## Plots mean forecasted biomass maps, corresponding CV, and change in biomass from 2023 to 2024
   ## data should be of form spatExpl_sim_out--created in generate_output.R
-  
-  
   plot_mean <- ggplot(data[data$age == age_group, ]) +
     geom_point(aes(x = easting_m, y = northing_m, color = mean_post/1000), shape = 15, size = 0.06) +
     labs(x = "Longitude",
