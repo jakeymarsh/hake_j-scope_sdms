@@ -16,9 +16,10 @@
 # 1. Configuration and Data Initialization
 # ----------------------------------------------------------------------------
 
+# Define retrospective period length
 num_years <- 7
 
-# Define output subdirectories
+# Define output sub-directories
 dirs <- c("./outputs/model_performance/total", 
           "./outputs/model_performance/age2", 
           "./outputs/model_performance/age3_4", 
@@ -140,7 +141,7 @@ save(performance_7year_array, file = './outputs/model_performance/performance_7y
 # Find best models based on lowest RMSE over the retrospective period
 ind_best <- list()
 ind_best$total_bmass <- which(RMSE_js_total_array_7years[,ncol(RMSE_js_total_array_7years)] == min(RMSE_js_total_array_7years[,ncol(RMSE_js_total_array_7years)]))
-ind_best$age2_bmass <- which(RMSE_js_age2_array_7years[,ncol(RMSE_js_age2_array_7years)] == min(RMSE_js_age2_array_7years[,ncol(RMSE_js_total_array_7years)]))
+ind_best$age2_bmass <- which(RMSE_js_age2_array_7years[,ncol(RMSE_js_age2_array_7years)] == min(RMSE_js_age2_array_7years[,ncol(RMSE_js_age2_array_7years)]))
 ind_best$age3_4_bmass <- which(RMSE_js_age3_4_array_7years[,ncol(RMSE_js_age3_4_array_7years)] == min(RMSE_js_age3_4_array_7years[,ncol(RMSE_js_age3_4_array_7years)]))
 ind_best$age5_20_bmass <- which(RMSE_js_age5_20_array_7years[,ncol(RMSE_js_age5_20_array_7years)] == min(RMSE_js_age5_20_array_7years[,ncol(RMSE_js_age5_20_array_7years)]))
 
@@ -198,7 +199,7 @@ total_pa_perform <- data.frame(aic = double(length = length(fully_trained_total_
                                age = "Total",
                                avg_auc = performance_7year_array$total_pa[,ncol(performance_7year_array$total_pa)])
 for(i in 1:length(fully_trained_total_pa)){
-  total_pa_perform$aic[i] <- AIC(fully_trained_total_bmass[[i]])
+  total_pa_perform$aic[i] <- AIC(fully_trained_total_pa[[i]])
 }
 
 

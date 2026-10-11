@@ -1,0 +1,67 @@
+# Pacific Hake J-SCOPE SDMs: Spatial Distribution and Biomass Forecasting
+
+This repository contains the data, modeling pipelines, and simulation routines for analyzing transboundary spatial distribution and biomass shifts of Pacific hake (*Merluccius productus*) using J-SCOPE dynamic oceanographic forecasts.
+
+**Associated Publication:**  
+Marshall et al., *"Forecasting Pacific hake biomass distributions using ocean temperature reveals novel cross-shelf but weak latitudinal effects."* *PLOS Climate*.
+
+## Repository Structure
+
+├── data/
+│   ├── _bath_200_utm_df       # 200 m isobath spatial vector for shelf break reference
+│   ├── _namerica_state_utm_df # North American coastline basemap layer
+│   ├── border_chull           # Spatial polygon bounding the U.S.–Canada EEZ domains
+│   ├── hake_js                # Survey hauls matched to J-SCOPE temperature anomalies
+│   └── temp_js                # Downscaled J-SCOPE temperature anomaly forecast grids
+├── gam/                       # Model formulas, penalty structures, and candidate specifications
+├── scripts/
+│   ├── functions.R            # Custom delta-GLMM functions and posterior draw routines
+│   ├── load.R                 # Asset loading and coordinate reference system transformations
+│   ├── make_model_formulas.R  # Candidate GAM formulas across cohorts (Total, Age 2, Age 3–4, Age 5+)
+│   ├── model_selection.R      # Leave-Future-Out cross-validation (LFO-CV) routines
+│   ├── generate_output.R      # 5,000 Monte Carlo draws, regional aggregations, and 2024 forecasts
+│   └── publish.R              # Publication figure scripts (Figures 1–6, Supplementary Figures)
+├── outputs/
+│   ├── model_performance/     # LFO-CV AUC and RMSE diagnostic summaries
+│   ├── output_stats/          # Regional biomass summaries and key manuscript findings
+│   └── figures/               # Final publication-ready TIFF graphics
+├── run_hake_model_pipeline.R  # Master orchestration script
+└── README.md
+
+
+Analyses were performed in R (version 4.3+). Install required dependencies:
+
+```r
+pkgs <- c(
+  "dplyr", "reshape2",
+  "mgcv", "MASS", "pROC",
+  "sf", "terra", "geosphere", "sgeostat",
+  "ggplot2", "viridis", "patchwork", "gt",
+  "ragg", "chromote", "webshot2", "here"
+)
+
+install.packages(setdiff(pkgs, rownames(installed.packages())))
+```
+
+
+2. Execution
+Run the entire analytical pipeline end-to-end via the master orchestration script:
+
+```
+source("run_hake_model_pipeline.R")
+```
+The master script executes the modules sequentially:
+
+Module 1 (load.R, functions.R): Loads hake survey data, regional boundary masks, and modeled temperature anomalies.
+
+Module 2 (make_model_formulas.R): Sets up candidate occurrence and positive-density GAM structures across cohorts (Total, Age 2, Age 3–4, Age 5+).
+
+Module 3 (model_selection.R): Conducts Leave-Future-Out cross-validation (LFO-CV) to identify optimal models.
+
+Module 4 (generate_output.R): Generates 5,000 posterior Monte Carlo draws to produce regional summed biomass estimates and 2024 forecasts.
+
+Module 5 (publish.R): Exports publication-ready figures.
+
+---
+
+

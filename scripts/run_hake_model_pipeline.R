@@ -13,8 +13,9 @@
 # ------------------------------------------------------------------------------
 # 1. Workspace Configuration
 # ------------------------------------------------------------------------------
-# Set the root directory for the GitHub repository
-setwd("C:/Users/jakem/OneDrive/Desktop/GitHub/hake_j-scope_sdms/")
+# Set the root directory 
+if (!requireNamespace("here", quietly = TRUE)) install.packages("here")
+setwd(here::here())
 
 # Start Execution Timer
 start_time <- Sys.time()

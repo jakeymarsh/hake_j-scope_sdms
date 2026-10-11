@@ -23,10 +23,15 @@ load('./gam/best.formulas.RData')
 if(!dir.exists('./outputs/output_stats/')) dir.create('./outputs/output_stats/', recursive = TRUE)
 
 # Global Simulation Parameters
+years <- unique(hake_js$year)
+nyears <- length(years)
 start <- 2012 
 num_sims <-  5000
 pred_data <- temp_js
 train_data <- hake_js
+
+# Create Spatial Grid
+grid <- pred_data[pred_data$year == 2015, c("lat", "lon", "easting_m", "northing_m", "read_order")]
 
 
 # ----------------------------------------------------------------------------
@@ -39,8 +44,8 @@ total_sim_region <- lfo_monte_carlo_sim(
   pred_data = pred_data, 
   subset = 'wgt_total', 
   start_train = start,
-  formula.bmass = best.formulas$bmass.total, # Stage 2: Density
-  formula.pa = best.formulas$pa.total, # Stage 1: Occurrence
+  formula.bmass = best.formulas$bmass.total, 
+  formula.pa = best.formulas$pa.total, 
   n_sims = num_sims
 )
 
@@ -77,6 +82,12 @@ age5_20_sim_region <- lfo_monte_carlo_sim(
   n_sims = num_sims
 )
 
+save(total_sim_region, file = './outputs/output_stats/total_sim_region.RData')
+save(age2_sim_region, file = './outputs/output_stats/age2_sim_region.RData')
+save(age3_4_sim_region, file = './outputs/output_stats/age3_4_sim_region.RData')
+save(age5_20_sim_region, file = './outputs/output_stats/age5_20_sim_region.RData')
+
+
 
 # ----------------------------------------------------------------------------
 # 3. Spatially Explicit Simulation Output Analysis
@@ -93,19 +104,20 @@ spat_expl_simulation_outputs$age <- factor(spat_expl_simulation_outputs$age, lev
 
 
 
-spat_expl_simulation_outputs <- merge(spat_expl_simulation_outputs, grid, by = "read_order")
-
+spat_expl_simulation_outputs <- spat_expl_simulation_outputs %>%
+  left_join(grid, by = "read_order") %>%
+  arrange(age, year, match(read_order, grid$read_order))
 
 
 save(spat_expl_simulation_outputs, file = './outputs/output_stats/spat_expl_simulation_outputs.RData')
 
 
 
-# Make calculate map of biomass change from pre_year to post_year including noting regions of significant changes based on pooled SE
+# Make map of biomass change from pre_year to post_year including noting regions of significant changes based on pooled SE
 
 make_change_map <- function(grid, spat_expl_simulation_outputs, pre_year, post_year){
  
-  # Calculate mean pre delta-model forecast map by location/age class using the original row index (read order)
+  # Calculate mean PRE delta-model forecast map by location/age class using the original row index (read order)
   sim_out_pre_list <- list()
   ages <- unique(spat_expl_simulation_outputs$age)
   nages <- length(ages)
@@ -117,7 +129,7 @@ make_change_map <- function(grid, spat_expl_simulation_outputs, pre_year, post_y
   }
   sim_out_pre <- do.call(rbind, sim_out_pre_list)
   
-  # Calculate post mean delta-model forecast map by location/age class using the original row index (read order)
+  # Calculate mean POST delta-model forecast map by location/age class using the original row index (read order)
   sim_out_post_list <- list()
   for(i in 1:nages){
     sim_age_i <- spat_expl_simulation_outputs[spat_expl_simulation_outputs$age == ages[i] & spat_expl_simulation_outputs$year == post_year,]
@@ -145,11 +157,18 @@ make_change_map <- function(grid, spat_expl_simulation_outputs, pre_year, post_y
                                  age = sim_out_post$age)
   spatExpl_sim_out$mean_diff <- spatExpl_sim_out$mean_post - spatExpl_sim_out$mean_pre
   
-  # Calculate Pooled SE: sqrt(var1 + var2) -- (assumes forecasts of the two years are independent)
+  # Calculate Pooled SE: sqrt(var1 + var2)
+  # Note: Models used to predict 2024 and 2023 share historical training data, making Cov(Y_pre, Y_post) > 0.
+  # Assuming independence omits the positive covariance, resulting in a conservative 
+  # estimate of variance for the difference (lower Type I error).
   spatExpl_sim_out$pooled_se <- sqrt(spatExpl_sim_out$se_post^2 + spatExpl_sim_out$se_pre^2)
   
   # Calculate Z-score using Pooled SE
-  spatExpl_sim_out$change_zscore <- spatExpl_sim_out$mean_diff / spatExpl_sim_out$pooled_se
+  spatExpl_sim_out$change_zscore <- ifelse(
+    spatExpl_sim_out$pooled_se > 0,
+    spatExpl_sim_out$mean_diff / spatExpl_sim_out$pooled_se,
+    0
+  )
   
   # Create a mask for non-significant changes for use in plotting (Alpha = 0.05, Z crit = 1.96) 
   spatExpl_sim_out$mean_is_significant <- abs(spatExpl_sim_out$change_zscore) >= 1.96
@@ -157,13 +176,13 @@ make_change_map <- function(grid, spat_expl_simulation_outputs, pre_year, post_y
   return(spatExpl_sim_out)
 }
 
-grid <- pred_data[pred_data$year == 2015, c("lat", "lon", "easting_m", "northing_m", "read_order")]
 
 change_2023_2024 <- make_change_map(grid, spat_expl_simulation_outputs, 2023, 2024)
 
 spatExpl_sim_out <- change_2023_2024
 
 save(spatExpl_sim_out, file = "./outputs/output_stats/spatExpl_sim_out.RData")
+
 
 
 # ----------------------------------------------------------------------------
@@ -180,31 +199,10 @@ regional_simulation_outputs <- do.call(rbind, regional_simulation_outputs_list)
 regional_sim_out <- bind_rows(regional_simulation_outputs)
 
 # Find 95% confidence intervals
-regional_sim_out$lower_reg <- regional_sim_out$mean_reg - 1.96 * regional_sim_out$se_reg
+regional_sim_out$lower_reg <- pmax(0, regional_sim_out$mean_reg - 1.96 * regional_sim_out$se_reg)
 regional_sim_out$upper_reg <- regional_sim_out$mean_reg + 1.96 * regional_sim_out$se_reg
 regional_sim_out$age <- factor(regional_sim_out$age, levels = c( "Total", "Age 2", "Age 3-4", "Age 5+"))
 save(regional_sim_out, file = './outputs/output_stats/regional_sim_out.RData')
-
-
-# Find predicted diff between US and CAN hake
-years <- unique(regional_sim_out$year)
-nyears <- length(years)
-ages <- unique(regional_sim_out$age)
-count <- 1
-diffs <- list()
-for(i in 1:length(years)){
-  for(j in 1:length(ages)){
-    means_i <- regional_sim_out$mean_reg[regional_sim_out$year == years[i] & regional_sim_out$age == ages[j]]
-    diffs[[count]] <- data.frame(diff = -diff(means_i),
-                                 sum = sum(means_i),
-                                 ratio_US = -diff(means_i) / sum(means_i),
-                                 year = years[i],
-                                 age = ages[j])
-    count <- count+1
-  }
-}
-region_diff <- bind_rows(diffs)
-save(region_diff, file = './outputs/output_stats/region_diff.RData')
 
 
 # ----------------------------------------------------------------------------

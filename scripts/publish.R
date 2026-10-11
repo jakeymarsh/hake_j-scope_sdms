@@ -14,16 +14,16 @@
 
 # 1.1 Define all required output subdirectories
 figure_dirs <- c(
-  "./final_outputs/figures/data/",
-  "./final_outputs/figures/model_performance/total/",
-  "./final_outputs/figures/model_performance/age2/",
-  "./final_outputs/figures/model_performance/age3_4/",
-  "./final_outputs/figures/model_performance/age5_20/",
-  "./final_outputs/figures/model_partial_effects/total/",
-  "./final_outputs/figures/model_partial_effects/age2/",
-  "./final_outputs/figures/model_partial_effects/age3_4/",
-  "./final_outputs/figures/model_partial_effects/age5_20/",
-  "./final_outputs/figures/forecasts/age_class_maps/"
+  "./outputs/figures/data/",
+  "./outputs/figures/model_performance/total/",
+  "./outputs/figures/model_performance/age2/",
+  "./outputs/figures/model_performance/age3_4/",
+  "./outputs/figures/model_performance/age5_20/",
+  "./outputs/figures/model_partial_effects/total/",
+  "./outputs/figures/model_partial_effects/age2/",
+  "./outputs/figures/model_partial_effects/age3_4/",
+  "./outputs/figures/model_partial_effects/age5_20/",
+  "./outputs/figures/forecasts/age_class_maps/"
 )
 invisible(lapply(figure_dirs, function(d) if(!dir.exists(d)) dir.create(d, recursive = TRUE)))
 
@@ -45,9 +45,7 @@ load('./outputs/model_performance/model.performance.RData')
 load('./outputs/output_stats/spat_expl_simulation_outputs.RData')
 load('./outputs/output_stats/spatExpl_sim_out.RData')
 load('./outputs/output_stats/regional_sim_out.RData')
-load('./outputs/output_stats/region_diff.RData')
 load('./outputs/output_stats/hake_obs_reg.RData')
-load('./outputs/output_stats/hist_fut_temp.RData')
 
 # 1.6 Best Models, Survey Data, and Oceanographic Forecasts
 load('./gam/best.gams.RData')
@@ -86,13 +84,173 @@ hake_dat$age <- factor(hake_dat$age, levels = c("Total", "Age 2", "Age 3-4", "Ag
 # 2. Map of Region of Study 
 # --------------------------------------------------------------------------------
 
+
+# ------------------------------------------------------------------------------
+# 1. Base Setup and Projection Helpers
+# ------------------------------------------------------------------------------
+target_crs <- st_crs(namerica_state_utm_df)
+
+to_utm <- function(lon, lat) {
+  st_sfc(st_point(c(lon, lat)), crs = 4326) %>%
+    st_transform(target_crs) %>%
+    st_coordinates()
+}
+
+# Metric ellipse constructor (a_km and b_km in kilometers)
+make_utm_ellipse <- function(lon_c, lat_c, a_km = 65, b_km = 16, angle_deg = 105, n = 80) {
+  c_pt <- to_utm(lon_c, lat_c)
+  x0 <- c_pt[1]
+  y0 <- c_pt[2]
+  
+  th <- angle_deg * pi / 180
+  t_seq <- seq(0, 2 * pi, length.out = n)
+  
+  a_m <- a_km * 1000
+  b_m <- b_km * 1000
+  
+  x <- x0 + a_m * cos(t_seq) * cos(th) - b_m * sin(t_seq) * sin(th)
+  y <- y0 + a_m * cos(t_seq) * sin(th) + b_m * sin(t_seq) * cos(th)
+  
+  st_polygon(list(cbind(x, y)))
+}
+
+# ------------------------------------------------------------------------------
+# 2. Polygons: Spawning Grounds & Shelf-Break Feeding Patches
+# ------------------------------------------------------------------------------
+
+# Spawning Area: Anchored offshore in Southern California Bight / northern Baja
+spawning_poly <- st_sfc(
+  make_utm_ellipse(-121.5, 31.8, a_km = 380, b_km = 160, angle_deg = 135),
+  crs = target_crs
+) %>%
+  st_sf(feature = "spawning area")
+
+# Feeding Patches along 200 m shelf break
+patch_list <- list(
+  make_utm_ellipse(-129.5, 51.5, a_km = 55, b_km = 18, angle_deg = 135), # Queen Charlotte Sound
+  make_utm_ellipse(-127.6, 49.6, a_km = 65, b_km = 18, angle_deg = 125), # W. Vancouver Island
+  make_utm_ellipse(-125.6, 47.8, a_km = 65, b_km = 18, angle_deg = 115), # Washington Shelf
+  make_utm_ellipse(-125.1, 46.2, a_km = 65, b_km = 18, angle_deg = 95),  # Columbia River plume/shelf
+  make_utm_ellipse(-124.9, 44.5, a_km = 60, b_km = 18, angle_deg = 95),  # Central Oregon
+  make_utm_ellipse(-124.9, 43.0, a_km = 55, b_km = 17, angle_deg = 95),  # Cape Blanco
+  make_utm_ellipse(-124.8, 41.2, a_km = 60, b_km = 17, angle_deg = 105), # Cape Mendocino / N. CA
+  make_utm_ellipse(-123.8, 38.5, a_km = 50, b_km = 16, angle_deg = 130), # Point Arena
+  make_utm_ellipse(-122.8, 36.6, a_km = 45, b_km = 15, angle_deg = 130), # Monterey Bay
+  make_utm_ellipse(-121.3, 34.6, a_km = 40, b_km = 15, angle_deg = 120)  # Point Conception
+)
+
+patches_sf <- st_sfc(patch_list, crs = target_crs) %>%
+  st_sf(feature = "main feeding areas")
+
+# ------------------------------------------------------------------------------
+# 3. Political Boundaries & Country Labels
+# ------------------------------------------------------------------------------
+
+# Country labels placed within the visible land area of the map
+country_labels <- st_sf(
+  label = c("CANADA", "USA"),
+  geometry = st_sfc(
+    st_point(c(-120.2, 50.8)), # British Columbia (clearly visible north of 49°N)
+    st_point(c(-120.0, 47.2)), # Central/Eastern Washington (clearly visible south of 49°N)
+    crs = 4326
+  )
+) %>%
+  st_transform(target_crs)
+
+# ------------------------------------------------------------------------------
+# 4. Study Region Bounding Box
+# ------------------------------------------------------------------------------
+grid_sf <- grid %>%
+  st_as_sf(coords = c("easting_m", "northing_m"), crs = target_crs)
+
+bbox_adj <- st_bbox(grid_sf)
+bbox_adj["xmax"] <- bbox_adj["xmax"] + 35000  # Shift eastern border inland onto Washington/Oregon
+
+study_domain_boundary <- st_as_sfc(bbox_adj) %>%
+  st_sf()
+
+# ------------------------------------------------------------------------------
+# 5. Final Publication-Ready Plot
+# ------------------------------------------------------------------------------
+o1 <- ggplot() +
+  # Base map
+  geom_sf(data = namerica_state_utm_df, fill = "grey93", color = "grey45", linewidth = 0.25) +
+  
+  # Spawning grounds (Winter)
+  geom_sf(data = spawning_poly, aes(fill = "Spawning grounds (winter)"), color = NA, alpha = 0.5) +
+  
+  # Shelf-break feeding patches (Summer)
+  geom_sf(data = patches_sf, aes(fill = "Main feeding areas (summer)"), color = "black", linewidth = 0.15) +
+  
+  # Country labels on visible land
+  geom_sf_text(data = country_labels, aes(label = label), 
+               family = "serif", fontface = "bold", size = 4.2, color = "grey25") +
+  
+  # Study domain boundary (integrated directly into color legend)
+  geom_sf(data = study_domain_boundary, aes(color = "Study domain (J-SCOPE)"), 
+          fill = NA, linewidth = 0.8) +
+  
+  # Legend Configuration
+  scale_fill_manual(
+    name = NULL,
+    values = c(
+      "Main feeding areas (summer)" = "black",
+      "Spawning grounds (winter)" = "grey70"
+    )
+  ) +
+  scale_color_manual(
+    name = NULL,
+    values = c("Study domain (J-SCOPE)" = "red")
+  ) +
+  guides(
+    fill = guide_legend(order = 1, override.aes = list(color = c("black", NA), alpha = c(1, 0.5))),
+    color = guide_legend(order = 2, override.aes = list(fill = NA, linewidth = 0.8))
+  ) +
+  
+  # Coordinate framing (Rotates coast ~16° CCW to vertical; padded to clear margins and legend)
+  coord_sf(
+    crs = "+proj=omerc +lat_0=42 +lonc=-124.5 +alpha=-16 +k=1 +datum=WGS84 +units=m +no_defs",
+    xlim = c(-650000 * 1.5, 580000 * 1.3),
+    ylim = c(-1450000, 1260000),  # Clears Queen Charlotte patch and southernmost Baja tip
+    expand = FALSE
+  ) +
+  labs(x = "Longitude", y = "Latitude") +
+  theme_bw(base_size = 10, base_family = "serif") +
+  theme(
+    panel.grid.major = element_line(linewidth = 0.2, color = "grey85"),
+    panel.grid.minor = element_blank(),
+    legend.justification = c(0, 0),
+    legend.position = c(0.03, 0.03),
+    legend.background = element_rect(fill = "white", color = "black", linewidth = 0.3),
+    legend.key = element_blank(),
+    legend.text = element_text(size = 9.5),           
+    legend.margin = margin(4, 6, 4, 6),
+    legend.spacing.y = unit(0.08, "cm"),
+    axis.title = element_text(size = 11.5),           
+    axis.text = element_text(size = 10.5, color = "black") 
+  )
+
+print(o1)
+
+ggsave('./outputs/figures/Fig1.png', o1,
+       width = 5.5, height = 6.5, units = "in", bg = "white")
+
+ggsave('./outputs/figures/Fig1.tiff', o1,
+       width = 5.5, height = 6.5, units = "in", 
+       dpi = 500, compression = "lzw", bg = "white")
+
+
+
 o1 <- ggplot() +
   geom_sf(data = namerica_state_utm_df, fill = "grey90", color = "grey30",
           linewidth = 0.2) +
   geom_rect(aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax= ymax), 
             color = "red", fill = NA) +
-  scale_x_continuous(breaks = c(seq(-200, -50, 15)), limits = c(xmin-500000*2, xmax+700000*2)) +
-  scale_y_continuous(breaks = c(seq(20, 70, 10)), limits = c(ymin-1000000*2, ymax+1000000*1.5)) +
+  coord_sf(
+    xlim = c(xmin - 500000 * 1.2, xmax + 700000 * 1),
+    ylim = c(ymin - 1000000 * 1, ymax + 1000000 * 0.7),
+    expand = FALSE
+  ) +
   labs(x = "Longitude",
        y = "Latitude") +
   theme(panel.spacing.x = unit(-0.5, "pt"),
@@ -107,10 +265,10 @@ o1 <- ggplot() +
         panel.grid.major = element_line(size = 0.2))+
   theme_bw(base_size = 10, base_family = "serif")
 
-ggsave('./final_outputs/figures/placeofstudy.png', o1,
+ggsave('./outputs/figures/placeofstudy.png', o1,
        width = 3, height = 4, units = "in", bg = "white")
 
-ggsave('./final_outputs/figures/placeofstudy.tiff', o1,
+ggsave('./outputs/figures/placeofstudy.tiff', o1,
        device = "tiff", width = 3, height = 4, units = "in", 
        dpi = 500, compression = "lzw", bg = "white")
 
@@ -152,10 +310,10 @@ h1 <- ggplot(hake_dat) +
         strip.text = element_text(family = "serif", size = 10, face = "plain"),
         strip.background = element_blank())
 
-ggsave('./final_outputs/figures/data/hake_by_ageclass.png', h1,
+ggsave('./outputs/figures/data/hake_by_ageclass.png', h1,
        width = 7, height = 3, units = "in", bg = "white")
 
-ggsave('./final_outputs/figures/data/hake_by_ageclass.tiff', h1,
+ggsave('./outputs/figures/data/hake_by_ageclass.tiff', h1,
        device = "tiff", width = 7, height = 3, units = "in", 
        dpi = 500, compression = "lzw", bg = "white")
 
@@ -191,10 +349,10 @@ h1_2 <- ggplot(hake_raw_data) +
         strip.text = element_text(family = "serif", size = 10, face = "plain"),
         strip.background = element_blank())
 
-ggsave('./final_outputs/figures/data/age2_lat_shelfdist.png', h1_2,
+ggsave('./outputs/figures/data/age2_lat_shelfdist.png', h1_2,
        width = 6, height = 8, units = "in", bg = "white")
 
-ggsave('./final_outputs/figures/data/age2_lat_shelfdist.tiff', h1_2,
+ggsave('./outputs/figures/data/age2_lat_shelfdist.tiff', h1_2,
        device = "tiff", width = 6, height = 8, units = "in", 
        dpi = 500, compression = "lzw", bg = "white")
 
@@ -228,10 +386,10 @@ h1_3 <- ggplot(hake_js) +
         strip.text = element_text(family = "serif", size = 10, face = "plain"),
         strip.background = element_blank())
 
-ggsave('./final_outputs/figures/data/hake_lat_shelfdist.png', h1_3,
+ggsave('./outputs/figures/data/hake_lat_shelfdist.png', h1_3,
        width = 6, height = 8, units = "in", bg = "white")
 
-ggsave('./final_outputs/figures/data/hake_lat_shelfdist.tiff', h1_3,
+ggsave('./outputs/figures/data/hake_lat_shelfdist.tiff', h1_3,
        device = "tiff", width = 6, height = 8, units = "in", 
        dpi = 500, compression = "lzw", bg = "white")
 
@@ -290,9 +448,9 @@ theme(text = element_text(family = "serif"),
       strip.text = element_text(family = "serif", size = 10, face = "plain"),
       strip.background = element_blank())
 
-ggsave('./final_outputs/figures/data/js_t250_all_years.png', t1,
+ggsave('./outputs/figures/data/js_t250_all_years.png', t1,
        width = 7, height = 4.5, units = "in", bg = "white")
-ggsave('./final_outputs/figures/data/js_t250_all_years.tiff', t1,
+ggsave('./outputs/figures/data/js_t250_all_years.tiff', t1,
        device = "tiff", width = 7, height = 4.5, units = "in", 
        dpi = 500, compression = "lzw", bg = "white")
 
@@ -335,9 +493,9 @@ t2 <- ggplot(pd[pd$temp_depth == "T100",]) +
         strip.text = element_text(family = "serif", size = 10, face = "plain"),
         strip.background = element_blank())
 
-ggsave('./final_outputs/figures/data/js_t100_all_years.png', t2,
+ggsave('./outputs/figures/data/js_t100_all_years.png', t2,
        width = 7, height = 4.5, units = "in", bg = "white")
-ggsave('./final_outputs/figures/data/js_t100_all_years.tiff', t2,
+ggsave('./outputs/figures/data/js_t100_all_years.tiff', t2,
        device = "tiff", width = 7, height = 4.5, units = "in", 
        dpi = 500, compression = "lzw", bg = "white")
 
@@ -405,9 +563,9 @@ t4 <- ggplot(pd_hcf[which(pd_hcf$temp_depth == "T250"),]) +
         strip.text = element_text(family = "serif", size = 10, face = "plain"),
         strip.background = element_blank())
 
-ggsave('./final_outputs/figures/data/js_t250_hot_cold_fut_years.png', t4,
+ggsave('./outputs/figures/data/js_t250_hot_cold_fut_years.png', t4,
        width = 4, height = 3, units = "in", bg = "white")
-ggsave('./final_outputs/figures/data/js_t250_hot_cold_fut_years.tiff', t4,
+ggsave('./outputs/figures/data/js_t250_hot_cold_fut_years.tiff', t4,
        device = "tiff", width = 4, height = 3, units = "in", 
        dpi = 500, compression = "lzw", bg = "white")
 
@@ -451,9 +609,9 @@ t5 <- ggplot(pd_hcf[which(pd_hcf$temp_depth == "T100"),]) +
         strip.text = element_text(family = "serif", size = 10, face = "plain"),
         strip.background = element_blank())
 
-ggsave('./final_outputs/figures/data/js_t100_hot_cold_fut_years.png', t5,
+ggsave('./outputs/figures/data/js_t100_hot_cold_fut_years.png', t5,
        width = 4, height = 3, units = "in", bg = "white")
-ggsave('./final_outputs/figures/data/js_t100_hot_cold_fut_years.tiff', t5,
+ggsave('./outputs/figures/data/js_t100_hot_cold_fut_years.tiff', t5,
        device = "tiff", width = 4, height = 3, units = "in", 
        dpi = 500, compression = "lzw", bg = "white")
 
@@ -472,9 +630,9 @@ pred_years_7years <- c(tail(unique(hake_js$year), 7), 'mean')
 mp_t_1 <- plot_heatmap(data = performance_7year_array$total_bmass, years = pred_years_7years, 
                        names = model_names, type = 'RMSE', lims = rmse_lims, 
                        age = "Total")
-ggsave("./final_outputs/figures/model_performance/total/total_bmass_RMSE_7years.png", mp_t_1,
+ggsave("./outputs/figures/model_performance/total/total_bmass_RMSE_7years.png", mp_t_1,
        width = 6, height = 3, units = "in", bg = "white")
-ggsave("./final_outputs/figures/model_performance/total/total_bmass_RMSE_7years.tiff", mp_t_1,
+ggsave("./outputs/figures/model_performance/total/total_bmass_RMSE_7years.tiff", mp_t_1,
        device = "tiff", width = 6, height = 3, units = "in", 
        dpi = 500, compression = "lzw", bg = "white")
 
@@ -483,9 +641,9 @@ ggsave("./final_outputs/figures/model_performance/total/total_bmass_RMSE_7years.
 mp_t_2 <- plot_heatmap(data = performance_7year_array$total_pa, years = pred_years_7years, 
                        names = model_names, type = 'AUC', lims = auc_lims, 
                        age = "Total")
-ggsave("./final_outputs/figures/model_performance/total/total_AUC_7years.png", mp_t_2,
+ggsave("./outputs/figures/model_performance/total/total_AUC_7years.png", mp_t_2,
        width = 6, height = 3, units = "in", bg = "white")
-ggsave("./final_outputs/figures/model_performance/total/total_AUC_7years.tiff", mp_t_2,
+ggsave("./outputs/figures/model_performance/total/total_AUC_7years.tiff", mp_t_2,
        device = "tiff", width = 6, height = 3, units = "in", 
        dpi = 500, compression = "lzw", bg = "white")
 
@@ -494,9 +652,9 @@ ggsave("./final_outputs/figures/model_performance/total/total_AUC_7years.tiff", 
 mp_a2_1 <- plot_heatmap(data = performance_7year_array$age2_bmass, years = pred_years_7years, 
                         names = model_names, type = 'RMSE', lims = rmse_lims, 
                         age = "Age 2")
-ggsave("./final_outputs/figures/model_performance/age2/age2_bmass_RMSE_7years.png", mp_a2_1,
+ggsave("./outputs/figures/model_performance/age2/age2_bmass_RMSE_7years.png", mp_a2_1,
        width = 6, height = 3, units = "in", bg = "white")
-ggsave("./final_outputs/figures/model_performance/age2/age2_bmass_RMSE_7years.tiff", mp_a2_1,
+ggsave("./outputs/figures/model_performance/age2/age2_bmass_RMSE_7years.tiff", mp_a2_1,
        device = "tiff", width = 6, height = 3, units = "in", 
        dpi = 500, compression = "lzw", bg = "white")
 
@@ -505,9 +663,9 @@ ggsave("./final_outputs/figures/model_performance/age2/age2_bmass_RMSE_7years.ti
 mp_a2_2 <- plot_heatmap(data = performance_7year_array$age2_pa, years = pred_years_7years, 
                         names = model_names, type = 'AUC', lims = auc_lims, 
                         age = "Age 2")
-ggsave("./final_outputs/figures/model_performance/age2/age2_AUC_7years.png", mp_a2_2,
+ggsave("./outputs/figures/model_performance/age2/age2_AUC_7years.png", mp_a2_2,
        width = 6, height = 3, units = "in", bg = "white")
-ggsave("./final_outputs/figures/model_performance/age2/age2_AUC_7years.tiff", mp_a2_2,
+ggsave("./outputs/figures/model_performance/age2/age2_AUC_7years.tiff", mp_a2_2,
        device = "tiff", width = 6, height = 3, units = "in", 
        dpi = 500, compression = "lzw", bg = "white")
 
@@ -517,9 +675,9 @@ ggsave("./final_outputs/figures/model_performance/age2/age2_AUC_7years.tiff", mp
 mp_a3_1 <- plot_heatmap(data = performance_7year_array$age3_4_bmass, years = pred_years_7years, 
                         names = model_names, type = 'RMSE', lims = rmse_lims, 
                         age = "Age 3-4")
-ggsave("./final_outputs/figures/model_performance/age3_4/age3_4_bmass_RMSE_7years.png", mp_a3_1,
+ggsave("./outputs/figures/model_performance/age3_4/age3_4_bmass_RMSE_7years.png", mp_a3_1,
        width = 6, height = 3, units = "in", bg = "white")
-ggsave("./final_outputs/figures/model_performance/age3_4/age3_4_bmass_RMSE_7years.tiff", mp_a3_1,
+ggsave("./outputs/figures/model_performance/age3_4/age3_4_bmass_RMSE_7years.tiff", mp_a3_1,
        device = "tiff", width = 6, height = 3, units = "in", 
        dpi = 500, compression = "lzw", bg = "white")
 
@@ -528,9 +686,9 @@ ggsave("./final_outputs/figures/model_performance/age3_4/age3_4_bmass_RMSE_7year
 mp_a3_2 <- plot_heatmap(data = performance_7year_array$age3_4_pa, years = pred_years_7years, 
                         names = model_names, type = 'AUC', lims = auc_lims, 
                         age = "Age 3-4")
-ggsave("./final_outputs/figures/model_performance/age3_4/age3_4_AUC_7years.png", mp_a3_2,
+ggsave("./outputs/figures/model_performance/age3_4/age3_4_AUC_7years.png", mp_a3_2,
        width = 6, height = 3, units = "in", bg = "white")
-ggsave("./final_outputs/figures/model_performance/age3_4/age3_4_AUC_7years.tiff", mp_a3_2,
+ggsave("./outputs/figures/model_performance/age3_4/age3_4_AUC_7years.tiff", mp_a3_2,
        device = "tiff", width = 6, height = 3, units = "in", 
        dpi = 500, compression = "lzw", bg = "white")
 
@@ -539,9 +697,9 @@ ggsave("./final_outputs/figures/model_performance/age3_4/age3_4_AUC_7years.tiff"
 mp_a5_1 <- plot_heatmap(data = performance_7year_array$age5_20_bmass, years = pred_years_7years, 
                         names = model_names, type = 'RMSE', lims = rmse_lims, 
                         age = "Age 5+")
-ggsave("./final_outputs/figures/model_performance/age5_20/age5_20_bmass_RMSE_7years.png", mp_a5_1,
+ggsave("./outputs/figures/model_performance/age5_20/age5_20_bmass_RMSE_7years.png", mp_a5_1,
        width = 6, height = 3, units = "in", bg = "white")
-ggsave("./final_outputs/figures/model_performance/age5_20/age5_20_bmass_RMSE_7years.tiff", mp_a5_1,
+ggsave("./outputs/figures/model_performance/age5_20/age5_20_bmass_RMSE_7years.tiff", mp_a5_1,
        device = "tiff", width = 6, height = 3, units = "in", 
        dpi = 500, compression = "lzw", bg = "white")
 
@@ -550,9 +708,9 @@ ggsave("./final_outputs/figures/model_performance/age5_20/age5_20_bmass_RMSE_7ye
 mp_a5_2 <- plot_heatmap(data = performance_7year_array$age5_20_pa, years = pred_years_7years, 
                         names = model_names, type = 'AUC', lims = auc_lims, 
                         age = "Age 5+")
-ggsave("./final_outputs/figures/model_performance/age5_20/age5_20_AUC_7years.png", mp_a5_2,
+ggsave("./outputs/figures/model_performance/age5_20/age5_20_AUC_7years.png", mp_a5_2,
        width = 6, height = 3, units = "in", bg = "white")
-ggsave("./final_outputs/figures/model_performance/age5_20/age5_20_AUC_7years.tiff", mp_a5_2,
+ggsave("./outputs/figures/model_performance/age5_20/age5_20_AUC_7years.tiff", mp_a5_2,
        device = "tiff", width = 6, height = 3, units = "in", 
        dpi = 500, compression = "lzw", bg = "white")
 
@@ -607,66 +765,8 @@ mp$delta_rmse <- delta_rmse
 mp$delta_auc <- delta_auc
 mp_plot <- mp[, c("age", "model", "avg_rmse", "delta_rmse", "bmass.r2", "avg_auc","delta_auc")]
 
-# Create the table
-gt_table <- gt(mp_plot) %>%
-  tab_header(
-    title = "Model Performance"
-  ) %>%
-  cols_label(
-    age = "Age",
-    model = "Model",
-    avg_rmse = "RMSE",
-    delta_rmse = "ΔRMSE",
-    bmass.r2 = "R²",
-    avg_auc = "AUC",
-    delta_auc = "ΔAUC",
-  ) %>%
-  fmt_number(
-    columns = c(avg_rmse, delta_rmse, bmass.r2, avg_auc, delta_auc),
-    decimals = 3
-  ) %>%
-  tab_spanner(
-    label = "Density Metrics",
-    columns = c(avg_rmse, delta_rmse, bmass.r2),
-  ) %>%
-  tab_spanner(
-    label = "Occurrence Metrics",
-    columns = c(avg_auc, delta_auc),
-  ) %>%
-  tab_options(
-    table.width = pct(60),
-    column_labels.font.weight = "bold",
-    data_row.padding = px(5),
-    table.font.size = 16
-  ) %>% sub_missing(
-    missing_text = ""
-  ) %>%
-  tab_style(
-    style = cell_fill(color = "grey90"), 
-    locations = cells_body(rows = c(1*n_models+(1:n_models), 3*n_models+(1:n_models)),  columns = everything())
-  ) %>%
-  tab_style(
-    style = cell_text(font = "Times New Roman"), 
-    locations = list(
-      cells_body(),
-      cells_column_labels(),
-      cells_row_groups()
-    )
-  )
-Sys.setenv(CHROMOTE_CHROME_ARGS = "--headless=new")
-gt_table %>%
-  gtsave(
-    filename = "model_performance.png",
-    path = "./final_outputs/figures/model_performance/",
-    zoom = 3,         
-    vwidth = 900,    
-    vheight = 1200    
-  )
 
-
-
-
-# Create the table with global Serif formatting
+# Create the table 
 gt_table <- gt(mp_plot) %>%
   tab_header(
     title = "Model Performance"
@@ -708,7 +808,6 @@ gt_table <- gt(mp_plot) %>%
       columns = everything()
     )
   ) %>%
-  # Global Serif / Times New Roman implementation across all table elements
   opt_table_font(
     font = list(
       "Times New Roman",
@@ -719,7 +818,7 @@ gt_table <- gt(mp_plot) %>%
 gtsave(
   data = gt_table,
   filename = "model_performance.docx",
-  path = "./final_outputs/figures/model_performance/"
+  path = "./outputs/figures/model_performance/"
 )
 
 
@@ -768,9 +867,9 @@ p <- ggplot(partial_bmass_total_sd, aes(x = x/1000, y = effect)) +
   theme(text = element_text(family = "serif"),
         axis.text = element_text(size = 10),
         axis.title = element_text(size = 12))
-ggsave("./final_outputs/figures/model_partial_effects/total/total_bmass_shelf_dist_PE.png", p,
+ggsave("./outputs/figures/model_partial_effects/total/total_bmass_shelf_dist_PE.png", p,
        width = 4, height = 3, units = "in", bg = "white")
-ggsave("./final_outputs/figures/model_partial_effects/total/total_bmass_shelf_dist_PE.tiff", p,
+ggsave("./outputs/figures/model_partial_effects/total/total_bmass_shelf_dist_PE.tiff", p,
        device = "tiff", width = 4, height = 3, units = "in", 
        dpi = 500, compression = "lzw", bg = "white")
 
@@ -782,8 +881,8 @@ ggsave("./final_outputs/figures/model_partial_effects/total/total_bmass_shelf_di
 
 slope <- as.vector(partial_effects_bmass_total$fit[,2] / bmass_train_dat_total$t250m_Ano_fill)
 conf.int            <- as.vector((partial_effects_bmass_total$se.fit[,2] / bmass_train_dat_total$t250m_Ano_fill) * 1.96)
-up.t                <- slope - conf.int
-low.t               <- slope + conf.int
+up.t                <- slope + conf.int
+low.t               <- slope - conf.int
 sig   <- (low.t < 0 & up.t < 0) | (low.t > 0 & up.t > 0)
 
 vc.bmass.total <- data.frame(slope, conf.int, up.t, low.t, sig,
@@ -822,9 +921,9 @@ tb_t250vc <- ggplot(vc.bmass.total[vc.bmass.total$sig,]) +
         legend.text = element_text(size = 6),
         legend.title = element_text(size = 9),
         panel.grid.major = element_line(size = 0.2))
-ggsave('./final_outputs/figures/model_partial_effects/total/total_bmass_SVt250_vc.png', tb_t250vc,
+ggsave('./outputs/figures/model_partial_effects/total/total_bmass_SVt250_vc.png', tb_t250vc,
        width = 2.5, height = 4.5, units = "in", bg = "white")
-ggsave('./final_outputs/figures/model_partial_effects/total/total_bmass_SVt250_vc.tiff', tb_t250vc,
+ggsave('./outputs/figures/model_partial_effects/total/total_bmass_SVt250_vc.tiff', tb_t250vc,
        device = "tiff", width = 2.5, height = 4.5, units = "in", 
        dpi = 500, compression = "lzw", bg = "white")
 
@@ -866,9 +965,9 @@ tb_latlon <- ggplot(vc.bmass.total) +
         legend.text = element_text(size = 6),
         legend.title = element_text(size = 9),
         panel.grid.major = element_line(size = 0.2))
-ggsave('./final_outputs/figures/model_partial_effects/total/total_bmass_latlon.png', tb_latlon,
+ggsave('./outputs/figures/model_partial_effects/total/total_bmass_latlon.png', tb_latlon,
        width = 2.5, height = 4.5, units = "in", bg = "white")
-ggsave('./final_outputs/figures/model_partial_effects/total/total_bmass_latlon.tiff', tb_latlon,
+ggsave('./outputs/figures/model_partial_effects/total/total_bmass_latlon.tiff', tb_latlon,
        device = "tiff", width = 2.5, height = 4.5, units = "in", 
        dpi = 500, compression = "lzw", bg = "white")
 
@@ -900,9 +999,9 @@ p <- ggplot(partial_pa_total_sd, aes(x = x/1000, y = effect)) +
   theme(text = element_text(family = "serif"),
         axis.text = element_text(size = 10),
         axis.title = element_text(size = 12))
-ggsave("./final_outputs/figures/model_partial_effects/total/total_pa_shelf_dist_PE.png", p,
+ggsave("./outputs/figures/model_partial_effects/total/total_pa_shelf_dist_PE.png", p,
        width = 4, height = 3, units = "in", bg = "white")
-ggsave("./final_outputs/figures/model_partial_effects/total/total_pa_shelf_dist_PE.tiff", p,
+ggsave("./outputs/figures/model_partial_effects/total/total_pa_shelf_dist_PE.tiff", p,
        device = "tiff", width = 4, height = 3, units = "in", 
        dpi = 500, compression = "lzw", bg = "white")
 
@@ -928,9 +1027,9 @@ p <- ggplot(partial_pa_total_sst250, aes(x = x, y = effect)) +
   theme(text = element_text(family = "serif"),
         axis.text = element_text(size = 10),
         axis.title = element_text(size = 12))
-ggsave("./final_outputs/figures/model_partial_effects/total/total_pa_SSt250_PE.png", p,
+ggsave("./outputs/figures/model_partial_effects/total/total_pa_SSt250_PE.png", p,
        width = 4, height = 3, units = "in", bg = "white")
-ggsave("./final_outputs/figures/model_partial_effects/total/total_pa_SSt250_PE.tiff", p,
+ggsave("./outputs/figures/model_partial_effects/total/total_pa_SSt250_PE.tiff", p,
        device = "tiff", width = 4, height = 3, units = "in", 
        dpi = 500, compression = "lzw", bg = "white")
 
@@ -965,9 +1064,9 @@ p <- ggplot(partial_bmass_age2_sd, aes(x = x/1000, y = effect)) +
   theme(text = element_text(family = "serif"),
         axis.text = element_text(size = 10),
         axis.title = element_text(size = 12))
-ggsave("./final_outputs/figures/model_partial_effects/age2/age2_bmass_shelf_dist_PE.png", p,
+ggsave("./outputs/figures/model_partial_effects/age2/age2_bmass_shelf_dist_PE.png", p,
        width = 4, height = 3, units = "in", bg = "white")
-ggsave("./final_outputs/figures/model_partial_effects/age2/age2_bmass_shelf_dist_PE.tiff", p,
+ggsave("./outputs/figures/model_partial_effects/age2/age2_bmass_shelf_dist_PE.tiff", p,
        device = "tiff", width = 4, height = 3, units = "in", 
        dpi = 500, compression = "lzw", bg = "white")
 
@@ -993,9 +1092,9 @@ p <- ggplot(partial_bmass_age2_t250, aes(x = x, y = effect)) +
   theme(text = element_text(family = "serif"),
         axis.text = element_text(size = 10),
         axis.title = element_text(size = 12))
-ggsave("./final_outputs/figures/model_partial_effects/age2/age2_bmass_SSt250_PE.png", p,
+ggsave("./outputs/figures/model_partial_effects/age2/age2_bmass_SSt250_PE.png", p,
        width = 4, height = 3, units = "in", bg = "white")
-ggsave("./final_outputs/figures/model_partial_effects/age2/age2_bmass_SSt250_PE.tiff", p,
+ggsave("./outputs/figures/model_partial_effects/age2/age2_bmass_SSt250_PE.tiff", p,
        device = "tiff", width = 4, height = 3, units = "in", 
        dpi = 500, compression = "lzw", bg = "white")
 
@@ -1027,9 +1126,9 @@ p <- ggplot(partial_pa_age2_sd, aes(x = x/1000, y = effect)) +
   theme(text = element_text(family = "serif"),
         axis.text = element_text(size = 10),
         axis.title = element_text(size = 12))
-ggsave("./final_outputs/figures/model_partial_effects/age2/age2_pa_shelf_dist_PE.png", p,
+ggsave("./outputs/figures/model_partial_effects/age2/age2_pa_shelf_dist_PE.png", p,
        width = 4, height = 3, units = "in", bg = "white")
-ggsave("./final_outputs/figures/model_partial_effects/age2/age2_pa_shelf_dist_PE.tiff", p,
+ggsave("./outputs/figures/model_partial_effects/age2/age2_pa_shelf_dist_PE.tiff", p,
        device = "tiff", width = 4, height = 3, units = "in", 
        dpi = 500, compression = "lzw", bg = "white")
 
@@ -1056,9 +1155,9 @@ p <- ggplot(partial_pa_age2_sst250, aes(x = x, y = effect)) +
   theme(text = element_text(family = "serif"),
         axis.text = element_text(size = 10),
         axis.title = element_text(size = 12))
-ggsave("./final_outputs/figures/model_partial_effects/age2/age2_pa_SSt250_PE.png", p,
+ggsave("./outputs/figures/model_partial_effects/age2/age2_pa_SSt250_PE.png", p,
        width = 4, height = 3, units = "in", bg = "white")
-ggsave("./final_outputs/figures/model_partial_effects/age2/age2_pa_SSt250_PE.tiff", p,
+ggsave("./outputs/figures/model_partial_effects/age2/age2_pa_SSt250_PE.tiff", p,
        device = "tiff", width = 4, height = 3, units = "in", 
        dpi = 500, compression = "lzw", bg = "white")
 
@@ -1095,9 +1194,9 @@ p <- ggplot(partial_bmass_age3_4_sd, aes(x = x/1000, y = effect)) +
   theme(text = element_text(family = "serif"),
         axis.text = element_text(size = 10),
         axis.title = element_text(size = 12))
-ggsave("./final_outputs/figures/model_partial_effects/age3_4/age3_4_bmass_shelf_dist_PE.png", p,
+ggsave("./outputs/figures/model_partial_effects/age3_4/age3_4_bmass_shelf_dist_PE.png", p,
        width = 4, height = 3, units = "in", bg = "white")
-ggsave("./final_outputs/figures/model_partial_effects/age3_4/age3_4_bmass_shelf_dist_PE.tiff", p,
+ggsave("./outputs/figures/model_partial_effects/age3_4/age3_4_bmass_shelf_dist_PE.tiff", p,
        device = "tiff", width = 4, height = 3, units = "in", 
        dpi = 500, compression = "lzw", bg = "white")
 
@@ -1128,9 +1227,9 @@ p <- ggplot(partial_pa_age3_4_sd, aes(x = x/1000, y = effect)) +
   theme(text = element_text(family = "serif"),
         axis.text = element_text(size = 10),
         axis.title = element_text(size = 12))
-ggsave("./final_outputs/figures/model_partial_effects/age3_4/age3_4_pa_shelf_dist_PE.png", p,
+ggsave("./outputs/figures/model_partial_effects/age3_4/age3_4_pa_shelf_dist_PE.png", p,
        width = 4, height = 3, units = "in", bg = "white")
-ggsave("./final_outputs/figures/model_partial_effects/age3_4/age3_4_pa_shelf_dist_PE.tiff", p,
+ggsave("./outputs/figures/model_partial_effects/age3_4/age3_4_pa_shelf_dist_PE.tiff", p,
        device = "tiff", width = 4, height = 3, units = "in", 
        dpi = 500, compression = "lzw", bg = "white")
 
@@ -1156,9 +1255,9 @@ p <- ggplot(partial_pa_age3_4_sst250, aes(x = x, y = effect)) +
   theme(text = element_text(family = "serif"),
         axis.text = element_text(size = 10),
         axis.title = element_text(size = 12))
-ggsave("./final_outputs/figures/model_partial_effects/age3_4/age3_4_pa_SSt250_PE.png", p,
+ggsave("./outputs/figures/model_partial_effects/age3_4/age3_4_pa_SSt250_PE.png", p,
        width = 4, height = 3, units = "in", bg = "white")
-ggsave("./final_outputs/figures/model_partial_effects/age3_4/age3_4_pa_SSt250_PE.tiff", p,
+ggsave("./outputs/figures/model_partial_effects/age3_4/age3_4_pa_SSt250_PE.tiff", p,
        device = "tiff", width = 4, height = 3, units = "in", 
        dpi = 500, compression = "lzw", bg = "white")
 
@@ -1193,9 +1292,9 @@ p <- ggplot(partial_bmass_age5_20_sd, aes(x = x/1000, y = effect)) +
   theme(text = element_text(family = "serif"),
         axis.text = element_text(size = 10),
         axis.title = element_text(size = 12))
-ggsave("./final_outputs/figures/model_partial_effects/age5_20/age5_20_bmass_shelf_dist_PE.png", p,
+ggsave("./outputs/figures/model_partial_effects/age5_20/age5_20_bmass_shelf_dist_PE.png", p,
        width = 4, height = 3, units = "in", bg = "white")
-ggsave("./final_outputs/figures/model_partial_effects/age5_20/age5_20_bmass_shelf_dist_PE.tiff", p,
+ggsave("./outputs/figures/model_partial_effects/age5_20/age5_20_bmass_shelf_dist_PE.tiff", p,
        device = "tiff", width = 4, height = 3, units = "in", 
        dpi = 500, compression = "lzw", bg = "white")
 
@@ -1203,8 +1302,8 @@ ggsave("./final_outputs/figures/model_partial_effects/age5_20/age5_20_bmass_shel
 # --- Spatially Varying (SV) Temperature Coefficient ---
 slope <- as.vector(partial_effects_bmass_age5_20$fit[,2] / bmass_train_dat_age5_20$t250m_Ano_fill)
 conf.int            <- as.vector((partial_effects_bmass_age5_20$se.fit[,2] / bmass_train_dat_age5_20$t250m_Ano_fill) * 1.96)
-up.t                <- slope - conf.int
-low.t               <- slope + conf.int
+up.t                <- slope + conf.int
+low.t               <- slope - conf.int
 sig   <- (low.t < 0 & up.t < 0) | (low.t > 0 & up.t > 0)
 
 vc.bmass.age5_20 <- data.frame(slope, conf.int, up.t, low.t, sig,
@@ -1243,9 +1342,9 @@ a5_20_t250vc <- ggplot(vc.bmass.age5_20[vc.bmass.age5_20$sig, ]) +
         legend.text = element_text(size = 6),
         legend.title = element_text(size = 9),
         panel.grid.major = element_line(size = 0.2))
-ggsave('./final_outputs/figures/model_partial_effects/age5_20/age5_20_bmass_SVt250_vc.png', a5_20_t250vc,
+ggsave('./outputs/figures/model_partial_effects/age5_20/age5_20_bmass_SVt250_vc.png', a5_20_t250vc,
        width = 2.5, height = 4.5, units = "in", bg = "white")
-ggsave('./final_outputs/figures/model_partial_effects/age5_20/age5_20_bmass_SVt250_vc.tiff', a5_20_t250vc,
+ggsave('./outputs/figures/model_partial_effects/age5_20/age5_20_bmass_SVt250_vc.tiff', a5_20_t250vc,
        device = "tiff", width = 2.5, height = 4.5, units = "in", 
        dpi = 500, compression = "lzw", bg = "white")
 
@@ -1277,9 +1376,9 @@ p <- ggplot(partial_pa_age5_20_sd, aes(x = x/1000, y = effect)) +
   theme(text = element_text(family = "serif"),
         axis.text = element_text(size = 10),
         axis.title = element_text(size = 12))
-ggsave("./final_outputs/figures/model_partial_effects/age5_20/age5_20_pa_shelf_dist_PE.png", p,
+ggsave("./outputs/figures/model_partial_effects/age5_20/age5_20_pa_shelf_dist_PE.png", p,
        width = 4, height = 3, units = "in", bg = "white")
-ggsave("./final_outputs/figures/model_partial_effects/age5_20/age5_20_pa_shelf_dist_PE.tiff", p,
+ggsave("./outputs/figures/model_partial_effects/age5_20/age5_20_pa_shelf_dist_PE.tiff", p,
        device = "tiff", width = 4, height = 3, units = "in", 
        dpi = 500, compression = "lzw", bg = "white")
 
@@ -1305,9 +1404,9 @@ p <- ggplot(partial_pa_age5_20_sst250, aes(x = x, y = effect)) +
   theme(text = element_text(family = "serif"),
         axis.text = element_text(size = 10),
         axis.title = element_text(size = 12))
-ggsave("./final_outputs/figures/model_partial_effects/age5_20/age5_20_pa_SSt250_PE.png", p,
+ggsave("./outputs/figures/model_partial_effects/age5_20/age5_20_pa_SSt250_PE.png", p,
        width = 4, height = 3, units = "in", bg = "white")
-ggsave("./final_outputs/figures/model_partial_effects/age5_20/age5_20_pa_SSt250_PE.tiff", p,
+ggsave("./outputs/figures/model_partial_effects/age5_20/age5_20_pa_SSt250_PE.tiff", p,
        device = "tiff", width = 4, height = 3, units = "in", 
        dpi = 500, compression = "lzw", bg = "white")
 
@@ -1350,9 +1449,9 @@ o1 <-  ggplot(spatExpl_sim_out) +
         legend.title = element_text(size = 6),
         panel.grid.major = element_line(size = 0.2))
 
-ggsave('./final_outputs/figures/forecasts/mean_pred_2024.png', o1,
+ggsave('./outputs/figures/forecasts/mean_pred_2024.png', o1,
        width = 4.5, height = 3, units = "in", bg = "white")
-ggsave('./final_outputs/figures/forecasts/mean_pred_2024.tiff', o1,
+ggsave('./outputs/figures/forecasts/mean_pred_2024.tiff', o1,
        device = "tiff", width = 4.5, height = 3, units = "in", 
        dpi = 500, compression = "lzw", bg = "white")
 
@@ -1386,9 +1485,9 @@ o2 <- ggplot(spatExpl_sim_out) +
               legend.title = element_text(size = 6),
               panel.grid.major = element_line(size = 0.2))
 
-ggsave('./final_outputs/figures/forecasts/CV_2024.png', o2,
+ggsave('./outputs/figures/forecasts/CV_2024.png', o2,
        width = 5.5, height = 3, units = "in", bg = "white")
-ggsave('./final_outputs/figures/forecasts/CV_2024.tiff', o2,
+ggsave('./outputs/figures/forecasts/CV_2024.tiff', o2,
        device = "tiff", width = 5.5, height = 3, units = "in", 
        dpi = 500, compression = "lzw", bg = "white")
 
@@ -1422,9 +1521,9 @@ o3 <- ggplot(spatExpl_sim_out) +
         legend.title = element_text(size = 6),
         panel.grid.major = element_line(size = 0.2))
 
-ggsave('./final_outputs/figures/forecasts/SE_2024.png', o3,
+ggsave('./outputs/figures/forecasts/SE_2024.png', o3,
        width = 5.5, height = 3, units = "in", bg = "white")
-ggsave('./final_outputs/figures/forecasts/SE_2024.tiff', o3,
+ggsave('./outputs/figures/forecasts/SE_2024.tiff', o3,
        device = "tiff", width = 5.5, height = 3, units = "in", 
        dpi = 500, compression = "lzw", bg = "white")
 
@@ -1463,9 +1562,9 @@ o4 <- ggplot(spatExpl_sim_out) +
         legend.text = element_text(size = 6),
         legend.title = element_text(size = 6),
         panel.grid.major = element_line(size = 0.2))
-ggsave('./final_outputs/figures/forecasts/diff_hist_fut.png', o4,
+ggsave('./outputs/figures/forecasts/diff_hist_fut.png', o4,
        width = 5.5, height = 3, units = "in", bg = "white")
-ggsave('./final_outputs/figures/forecasts/diff_hist_fut.tiff', o4,
+ggsave('./outputs/figures/forecasts/diff_hist_fut.tiff', o4,
        device = "tiff", width = 5.5, height = 3, units = "in", 
        dpi = 500, compression = "lzw", bg = "white")
 
@@ -1477,54 +1576,60 @@ ggsave('./final_outputs/figures/forecasts/diff_hist_fut.tiff', o4,
 # relative to the 2023 baseline
 
 # --- Total Hake Profile ---
+total_coef <- 3
 total_ageclass_maps <- plot_ageclass_maps(data = spatExpl_sim_out, 
-                                          mean_lims = c(0,120),
-                                          se_lims = c(0,60), 
-                                          change_lims = c(-40, 40),
+                                          mean_lims = c(0,180*total_coef),
+                                          se_lims = c(0,60*total_coef), 
+                                          change_lims = c(-40*total_coef, 40*total_coef),
                                           # change_lims = c(-60, 60), 
                                           age_group = "Total")
-ggsave('./final_outputs/figures/forecasts/age_class_maps/total_ageclass_maps.png', total_ageclass_maps,
+ggsave('./outputs/figures/forecasts/age_class_maps/total_ageclass_maps.png', total_ageclass_maps,
        width = 5.7, height = 2.8, units = "in", bg = "white")
-ggsave('./final_outputs/figures/forecasts/age_class_maps/total_ageclass_maps.tiff', total_ageclass_maps,
+ggsave('./outputs/figures/forecasts/age_class_maps/total_ageclass_maps.tiff', total_ageclass_maps,
        device = "tiff", width = 5.7, height = 2.8, units = "in", 
        dpi = 500, compression = "lzw", bg = "white")
 
 # --- Age 2 Hake Profile ---
+age2_coef <- 5
 age2_ageclass_maps <- plot_ageclass_maps(data = spatExpl_sim_out, 
-                                         mean_lims = c(0,6),
-                                         se_lims = c(0,3), 
-                                         change_lims = c(-2, 2),
+                                         mean_lims = c(0,9*age2_coef),
+                                         se_lims = c(0,3*age2_coef), 
+                                         change_lims = c(-2*age2_coef, 2*age2_coef),
                                          age_group = "Age 2")
-ggsave('./final_outputs/figures/forecasts/age_class_maps/age2_ageclass_maps.png', age2_ageclass_maps,
+ggsave('./outputs/figures/forecasts/age_class_maps/age2_ageclass_maps.png', age2_ageclass_maps,
        width = 5.7, height = 2.8, units = "in", bg = "white")
-ggsave('./final_outputs/figures/forecasts/age_class_maps/age2_ageclass_maps.tiff', age2_ageclass_maps,
+ggsave('./outputs/figures/forecasts/age_class_maps/age2_ageclass_maps.tiff', age2_ageclass_maps,
        device = "tiff", width = 5.7, height = 2.8, units = "in", 
        dpi = 500, compression = "lzw", bg = "white")
 
 # --- Age 3-4 Hake Profile ---
+age3_4_coef <- 5
 age3_4_ageclass_maps <- plot_ageclass_maps(data = spatExpl_sim_out, 
-                                           mean_lims = c(0,50),
-                                           se_lims = c(0,25), 
-                                           change_lims = c(-15, 15),
+                                           mean_lims = c(0,50*age3_4_coef),
+                                           se_lims = c(0,25*age3_4_coef), 
+                                           change_lims = c(-16*age3_4_coef, 16*age3_4_coef),
                                            age_group = "Age 3-4")
-ggsave('./final_outputs/figures/forecasts/age_class_maps/age3_4_ageclass_maps.png', age3_4_ageclass_maps,
+ggsave('./outputs/figures/forecasts/age_class_maps/age3_4_ageclass_maps.png', age3_4_ageclass_maps,
        width = 5.7, height = 2.8, units = "in", bg = "white")
-ggsave('./final_outputs/figures/forecasts/age_class_maps/age3_4_ageclass_maps.tiff', age3_4_ageclass_maps,
+ggsave('./outputs/figures/forecasts/age_class_maps/age3_4_ageclass_maps.tiff', age3_4_ageclass_maps,
        device = "tiff", width = 5.7, height = 2.8, units = "in", 
        dpi = 500, compression = "lzw", bg = "white")
 
 
 # --- Age 5+ Hake Profile ---
+age5_20_coef <- 4.5
 age5_20_ageclass_maps <- plot_ageclass_maps(data = spatExpl_sim_out, 
-                                            mean_lims = c(0,60),
-                                            se_lims = c(0,30), 
-                                            change_lims = c(-20,20),
+                                            mean_lims = c(0,60*age5_20_coef),
+                                            se_lims = c(0,30*age5_20_coef), 
+                                            change_lims = c(-20*age5_20_coef,20*age5_20_coef),
                                             age_group = "Age 5+")
-ggsave('./final_outputs/figures/forecasts/age_class_maps/age5_20_ageclass_maps.png', age5_20_ageclass_maps,
+ggsave('./outputs/figures/forecasts/age_class_maps/age5_20_ageclass_maps.png', age5_20_ageclass_maps,
        width = 5.7, height = 2.8, units = "in", bg = "white")
-ggsave('./final_outputs/figures/forecasts/age_class_maps/age5_20_ageclass_maps.tiff', age5_20_ageclass_maps,
+ggsave('./outputs/figures/forecasts/age_class_maps/age5_20_ageclass_maps.tiff', age5_20_ageclass_maps,
        device = "tiff", width = 5.7, height = 2.8, units = "in", 
        dpi = 500, compression = "lzw", bg = "white")
+
+
 
 
 
@@ -1532,10 +1637,10 @@ ggsave('./final_outputs/figures/forecasts/age_class_maps/age5_20_ageclass_maps.t
 plot_year_forecast <- function(plot_year, forecast_output = spat_expl_simulation_outputs, lims){
   
   plot_2015 <- ggplot(forecast_output %>% filter(forecast_output$age == "Total" & year == plot_year)) +
-    geom_point(aes(x = easting_m, y = northing_m, color = mean/1000), shape = 15, size = 0.06) +
+    geom_point(aes(x = easting_m, y = northing_m, color = mean/10000), shape = 15, size = 0.06) +
     labs(x = "Longitude",
          y = "Latitude",
-         color = 'kg x 10^3',
+         color = 'kg x 10^5',
          title = paste0(plot_year)) +
     geom_sf(data = bath_200_utm_df, fill = NA, color = "grey90", size = 0.2) +  
     geom_sf(data = namerica_state_utm_df,fill = "grey90", color = "grey10", size = 0.2) +
@@ -1560,66 +1665,24 @@ plot_year_forecast <- function(plot_year, forecast_output = spat_expl_simulation
 }
 
 
-p_2015 <- plot_year_forecast(plot_year = 2015, lims = c(0,120))
-p_2017 <- plot_year_forecast(plot_year = 2017, lims = c(0,120))
-p_2019 <- plot_year_forecast(plot_year = 2019, lims = c(0,120))
+p_2015 <- plot_year_forecast(plot_year = 2015, lims = c(0,6))
+p_2017 <- plot_year_forecast(plot_year = 2017, lims = c(0,6))
+p_2019 <- plot_year_forecast(plot_year = 2019, lims = c(0,6))
 
 
-ggsave('./final_outputs/figures/forecasts/2015_total_forecast.tiff', p_2015,
+ggsave('./outputs/figures/forecasts/2015_total_forecast.tiff', p_2015,
        device = "tiff", width = 1.4, height = 3.75, units = "in", 
        dpi = 500, compression = "lzw", bg = "white")
 
-ggsave('./final_outputs/figures/forecasts/2017_total_forecast.tiff', p_2017,
+ggsave('./outputs/figures/forecasts/2017_total_forecast.tiff', p_2017,
        device = "tiff", width = 1.4, height = 3.75, units = "in", 
        dpi = 500, compression = "lzw", bg = "white")
 
-ggsave('./final_outputs/figures/forecasts/2019_total_forecast.tiff', p_2019,
+ggsave('./outputs/figures/forecasts/2019_total_forecast.tiff', p_2019,
        device = "tiff", width = 1.4, height = 3.75, units = "in", 
        dpi = 500, compression = "lzw", bg = "white")
 
   
-
-
-
-
-
-
-
-
-
-# 
-# # showcase difference between 2017 and 2019
-# total_ageclass_maps <- plot_ageclass_maps(data = spatExpl_sim_out, 
-#                                           mean_lims = c(0,120),
-#                                           se_lims = c(0,60), 
-#                                           change_lims = c(-60, 60), 
-#                                           age_group = "Total")
-# age2_ageclass_maps <- plot_ageclass_maps(data = spatExpl_sim_out, 
-#                                          mean_lims = c(0,1),
-#                                          se_lims = c(0,0.5), 
-#                                          change_lims = c(-0.5,0.5),
-#                                          age_group = "Age 2")
-# age3_4_ageclass_maps <- plot_ageclass_maps(data = spatExpl_sim_out, 
-#                                            mean_lims = c(0,20),
-#                                            se_lims = c(0,10), 
-#                                            change_lims = c(-10, 10),
-#                                            age_group = "Age 3-4")
-# age5_20_ageclass_maps <- plot_ageclass_maps(data = spatExpl_sim_out, 
-#                                             mean_lims = c(0,60),
-#                                             se_lims = c(0,30), 
-#                                             change_lims = c(-30,30),
-#                                             age_group = "Age 5+")
-# ggsave('C:/Users/jakem/Downloads/down.png', age5_20_ageclass_maps,
-#        width = 5.7, height = 2.8, units = "in", bg = "white")
-# ggsave('C:/Users/jakem/Downloads/down.png', age5_20_ageclass_maps,
-#        device = "tiff", width = 5.7, height = 2.8, units = "in", 
-#        dpi = 500, compression = "lzw", bg = "white")
-
-
-
-
-
-
 
 # --------------------------------------------------------------------------------
 # 10. Regional Aggregation & Transboundary Analysis 
@@ -1629,12 +1692,11 @@ ggsave('./final_outputs/figures/forecasts/2019_total_forecast.tiff', p_2019,
 
 
 # --- Aggregated Biomass in U.S. and Canada --- 
-coeff = 1/10
 o5 <- ggplot(regional_sim_out, aes(x = year)) +
   geom_vline(xintercept = c(2015, 2019), alpha = 0.5) +
   annotate('rect', xmin = 2015, xmax = 2019, ymin = -Inf, ymax = Inf, fill = "red", alpha = 0.3) + 
   geom_line(data = regional_sim_out[regional_sim_out$region == "US",], aes(y = mean_reg, color = "US"), linetype = "solid", linewidth = 0.6) +
-  geom_line(data = regional_sim_out[regional_sim_out$region == "CAN",], aes(y = mean_reg/coeff, color = "CAN"), linetype = "solid", linewidth = 0.6) +
+  geom_line(data = regional_sim_out[regional_sim_out$region == "CAN",], aes(y = mean_reg, color = "CAN"), linetype = "solid", linewidth = 0.6) +
   geom_line(data = hake_obs_reg[hake_obs_reg$region == "US",], aes(x = year, y = wgts, color = "US"), linetype = "dashed", linewidth = 0.6) +
   geom_line(data = hake_obs_reg[hake_obs_reg$region == "CAN",], aes(x = year, y = wgts, color = "CAN"), linetype = "dashed", linewidth = 0.6) +
   facet_wrap(~ age, nrow = 2) +
@@ -1652,11 +1714,162 @@ o5 <- ggplot(regional_sim_out, aes(x = year)) +
         axis.text.y.right = element_text(margin = margin(l = 5), color = "red"), 
         axis.text.y.left = element_text(margin = margin(l = 5), color = "blue"),
         panel.spacing.x = unit(1, "lines"))  
-ggsave('./final_outputs/figures/forecasts/regional_biomass.png', o5,
+ggsave('./outputs/figures/forecasts/regional_biomass.png', o5,
        width = 7, height = 5, units = "in", bg = "white")
-ggsave('./final_outputs/figures/forecasts/regional_biomass.tiff', o5,
+ggsave('./outputs/figures/forecasts/regional_biomass.tiff', o5,
        device = "tiff", width = 7, height = 5, units = "in",
        dpi = 500, compression = "lzw", bg = "white")
+
+
+
+
+# Convert raw kg to Mt
+scale_factor <- 1e9
+
+sim_clean <- regional_sim_out %>%
+  mutate(
+    mean_mt  = mean_reg / scale_factor,
+    lower_mt = lower_reg / scale_factor,
+    upper_mt = upper_reg / scale_factor,
+    region   = factor(region, levels = c("US", "CAN"), labels = c("United States", "Canada"))
+  )
+
+obs_clean <- hake_obs_reg %>%
+  mutate(
+    wgts_mt = wgts / scale_factor,
+    region  = factor(region, levels = c("US", "CAN"), labels = c("United States", "Canada"))
+  )
+
+
+o5_a <- ggplot() +
+  # Heatwave / focal window shading
+  annotate("rect", xmin = 2015, xmax = 2019, ymin = -Inf, ymax = Inf,
+           fill = "grey90", alpha = 0.6) +
+  geom_vline(xintercept = c(2015, 2019), linetype = "dotted", color = "grey50") +
+  
+  # Uncertainty ribbons
+  geom_ribbon(data = sim_clean, aes(x = year, ymin = lower_mt, ymax = upper_mt, fill = region),
+              alpha = 0.25, show.legend = FALSE) +
+  
+  # Predicted & Observed lines
+  geom_line(data = sim_clean, aes(x = year, y = mean_mt, color = region, linetype = "Predicted"),
+            linewidth = 0.8) +
+  geom_point(data = sim_clean, aes(x = year, y = mean_mt, color = region),
+             size = 1.6, shape = 16) +
+  geom_line(data = obs_clean, aes(x = year, y = wgts_mt, color = region, linetype = "Observed"),
+            linewidth = 0.8) +
+  geom_point(data = obs_clean, aes(x = year, y = wgts_mt, color = region),
+             size = 1.6, shape = 16) +
+  
+  # facet_wrap frees the y-axis for every single individual panel
+  facet_wrap(region ~ age, scales = "free_y", ncol = 4) +
+  
+  scale_color_manual(name = "Region", values = c("United States" = "#08519c", "Canada" = "#cb181d")) +
+  scale_fill_manual(values = c("United States" = "#08519c", "Canada" = "#cb181d")) +
+  scale_linetype_manual(name = "Data Source", values = c("Predicted" = "solid", "Observed" = "dashed")) +
+  scale_x_continuous(
+    breaks = seq(2012, 2024, by = 2),
+    limits = c(2011.6, 2024.4),
+    expand = c(0, 0)
+  ) +
+  
+  scale_y_continuous(
+    expand = expansion(mult = c(0.05, 0.12))
+  ) +
+  labs(
+    title = "",
+    x = "Year",
+    y = "Biomass (Mt)"
+  ) +
+  theme_bw(base_size = 11, base_family = "serif") +
+  guides(color = "none", fill = "none") +
+  theme(
+    legend.key.width = unit(1.5, "cm"),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    strip.text = element_text(face = "bold"),
+    strip.background = element_rect(fill = "grey95"),
+    legend.position = "none",
+    panel.grid.minor = element_blank()
+  )
+
+ggsave('./outputs/figures/forecasts/regional_biomass_a.tiff', o5_a,
+       device = "tiff", width = 9, height = 5, units = "in",
+       dpi = 500, compression = "lzw", bg = "white")
+
+ggsave('./outputs/figures/forecasts/regional_biomass_a.png', o5_a,
+       width = 9, height = 5, units = "in", bg = "white")
+
+
+
+o5_b <- ggplot() +
+  # Heatwave / focal window shading
+  annotate("rect", xmin = 2015, xmax = 2019, ymin = -Inf, ymax = Inf,
+           fill = "grey90", alpha = 0.6) +
+  geom_vline(xintercept = c(2015, 2019), linetype = "dotted", color = "grey50") +
+  
+  # Uncertainty ribbon (matches region fill)
+  geom_ribbon(data = sim_clean, aes(x = year, ymin = lower_mt, ymax = upper_mt, fill = region),
+              alpha = 0.22, show.legend = FALSE) +
+  
+  # Lines and points
+  geom_line(data = sim_clean, aes(x = year, y = mean_mt, color = region, linetype = "Predicted"),
+            linewidth = 0.85) +
+  geom_point(data = sim_clean, aes(x = year, y = mean_mt, color = region),
+             size = 1.6, shape = 16) +
+  geom_line(data = obs_clean, aes(x = year, y = wgts_mt, color = region, linetype = "Observed"),
+            linewidth = 0.75) +
+  geom_point(data = obs_clean, aes(x = year, y = wgts_mt, color = region),
+             size = 1.6, shape = 16) +
+  
+  facet_grid(region ~ age, scales = "free_y") +
+  
+  # Keys now explicitly match "United States" and "Canada"
+  scale_color_manual(
+    name = "Region",
+    values = c("United States" = "#08519c", "Canada" = "#cb181d")
+  ) +
+  scale_fill_manual(
+    values = c("United States" = "#08519c", "Canada" = "#cb181d")
+  ) +
+  scale_linetype_manual(
+    name = "Data Source",
+    values = c("Predicted" = "solid", "Observed" = "dashed")
+  ) +
+
+  scale_x_continuous(
+    breaks = seq(2012, 2024, by = 2),
+    limits = c(2011.6, 2024.4),
+    expand = c(0, 0)
+  ) +
+  
+  scale_y_continuous(
+    expand = expansion(mult = c(0.05, 0.12))
+  ) +
+  
+  labs(
+    title = '',
+    x = 'Year',
+    y = 'Biomass (Mt)'
+  ) +
+  theme_bw(base_size = 11, base_family = "serif") +
+  guides(color = "none", fill = "none") +
+  theme(
+    legend.key.width = unit(1.5, "cm"),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    strip.text = element_text(face = "bold"),
+    strip.background = element_rect(fill = "grey95"),
+    panel.grid.minor = element_blank(),
+    legend.position = "none"
+  )
+
+
+ggsave('./outputs/figures/forecasts/regional_biomass_b.tiff', o5_b,
+       device = "tiff", width = 8, height = 5, units = "in",
+       dpi = 500, compression = "lzw", bg = "white")
+
+
+ggsave('./outputs/figures/forecasts/regional_biomass_b.png', o5_b,
+       width = 8, height = 5, units = "in", bg = "white")
 
 
 # end of script
